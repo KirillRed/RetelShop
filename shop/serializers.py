@@ -14,10 +14,15 @@ class CategorySerializer(serializers.ModelSerializer):
         model = models.Category
         fields = '__all__'
 
-class ProductSerializer(serializers.ModelSerializer):
+class DetailedProductSerializer:
     class Meta:
         model = models.Product
         fields = 'all'
+
+class ProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Product
+        fields = ['title', 'price', 'likes', 'photo', 'published']
 
 class PageSerializer(serializers.ModelSerializer):
     class Meta:
