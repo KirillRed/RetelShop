@@ -1,7 +1,8 @@
 import json
 from django.conf import settings
 from django.core.mail import send_mail
-from django.contrib.auth.models import User, Group
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import User, Group, UserManager
 from django.urls.base import reverse_lazy
 from registration.models import Client
 from django.http.response import HttpResponseBadRequest, HttpResponseNotFound
@@ -20,6 +21,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.sites.shortcuts import get_current_site
 from django.contrib.auth.tokens import default_token_generator
 
+
 @csrf_exempt
 def register_page(request: HttpRequest):
     if request.user.is_authenticated:
@@ -34,13 +36,14 @@ def register_page(request: HttpRequest):
                 return HttpResponseBadRequest('User with this email already exists!')
             except User.DoesNotExist:
                 pass
-            form.save()
+            #form.save()
             username = form['username'].value()
             password = form['password1'].value()
+            get_user_model().objects.create_user(username=username, password=password, email=email)
             user = authenticate(request, username=username, password=password)
             login(request, user)
             g = Group.objects.get(name='no_verified_email')
-            request.user.groups.set(2)
+            g.user_set.add(user)
             send_verify_email(request=request, user_email=email)
             models.Client.objects.create(
                 user=request.user,
@@ -71,9 +74,12 @@ def send_verify_email(request: HttpRequest, user_email):
     )
 
 def verify_email(request: HttpRequest, uidb64, token):
-    g = Group.objects.get(name='verified_email')
-    g.user_set.remove(request.user.pk)
-    request.user.groups.set(1)
+    user_id = int(urlsafe_base64_decode(uidb64))
+    user = User.objects.get(pk=user_id)
+    no_verified = Group.objects.get(name='no_verified_email')
+    no_verified.user_set.remove(user.pk)
+    verified = Group.objects.get(name='verified_email')
+    verified.user_set.add(user.pk)
     messages.success(request, 'Your email has been verified!')
     return redirect('shop:home')
 
@@ -93,6 +99,7 @@ def phone_link(request: HttpRequest):
 
 @csrf_exempt
 @login_required
+@verified_email
 def profile_pic_link(request: HttpRequest):
     form = forms.ProfilePicForm
     if request.method == 'POST':
@@ -156,5 +163,31 @@ def profile_page(request: HttpRequest):
         client = request.user.client
         serializer = serializers.ClientSerializer(client)
         return JsonResponse(serializer.data, safe=False)
+
+@verified_email
+@csrf_exempt
+def add_review(request: HttpRequest):
+    target_pk = request.GET.get('pk', '')
+    if target_pk == '':
+        return HttpResponseBadRequest('Oops.. Something went wrong!')
+    try:
+        target = models.Client.objects.get(pk=target_pk)
+    except models.Client.DoesNotExist:
+        return HttpResponseNotFound('This client does not exit!')
+    if request.method == 'POST':
+        form = forms.ReviewForm(request.POST)
+        if form.is_valid():
+            review = models.Review(
+                rating = form['rating'].value(),
+                title = form['title'].value(),
+                text = form['text'].value(),
+                target = target,
+                author = request.user.client
+            )
+            review.save()
+            return redirect('shop:home')
+        else:
+            return JsonResponse(form.errors)
+
 
 
