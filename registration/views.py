@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User, Group, UserManager
 from django.urls.base import reverse_lazy
 from registration.models import Client
-from django.http.response import HttpResponseBadRequest, HttpResponseNotFound
+from django.http.response import HttpResponseBadRequest, HttpResponseForbidden, HttpResponseNotFound
 from django.contrib.auth.decorators import login_required
 from django.http.request import HttpRequest
 from django.shortcuts import redirect
@@ -189,5 +189,24 @@ def add_review(request: HttpRequest):
         else:
             return JsonResponse(form.errors)
 
+@verified_email
+@csrf_exempt
+def edit_review(request: HttpRequest):
+    review_pk = request.GET.get('pk', '')
+    if review_pk == '':
+        return HttpResponseBadRequest('Oops.. Something went wrong!')
+    try:
+        review = models.Review.objects.get(pk=review_pk)
+    except models.Client.DoesNotExist:
+        return HttpResponseNotFound('This client does not exit!')
+    if request.method == 'POST':
+        if review.author != request.user.client:
+           return HttpResponseForbidden('This isn\'t your review! You can\'t remove it')
+        form = forms.ReviewForm(request.POST, instance=review)
+        if form.is_valid():
+            form.save()
+            return redirect('shop:home')
+        else:
+            return JsonResponse(form.errors)
 
 
