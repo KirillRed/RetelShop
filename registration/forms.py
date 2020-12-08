@@ -37,3 +37,8 @@ class CheckPasswordForm(forms.ModelForm):
     class Meta:
         model = User
         fields = ['password']
+
+class ReviewForm(forms.ModelForm):
+    class Meta:
+        model = models.Review
+        fields = ['rating', 'title', 'text']
