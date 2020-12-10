@@ -158,11 +158,23 @@ def change_password(request: HttpRequest):
         return JsonResponse(form.errors)
 
 @login_required
-def profile_page(request: HttpRequest):
+def my_profile_page(request: HttpRequest):
     if request.method == 'GET':
         client = request.user.client
-        serializer = serializers.ClientSerializer(client)
-        return JsonResponse(serializer.data, safe=False)
+        client_serializer = serializers.ClientSerializer(client)
+        reviews = models.Review.objects.filter(target=client.pk)
+        review_sarializer = serializers.ReviewSerializer(reviews, many=True)
+        avarage_rating_request = request
+        avarage_rating_request.GET._mutable = True
+        avarage_rating_request.GET['pk'] = client.pk
+        avarage_rating = get_avarage_rating(avarage_rating_request).__dict__['_container']
+        avarage_rating = str(avarage_rating)
+        index = avarage_rating.find(':') + 2
+        avarage_rating_str = avarage_rating[index: len(avarage_rating) - 3]
+        print(index, len(avarage_rating) - 3, avarage_rating)
+        context = {'client': client_serializer.data, 'reviews': review_sarializer.data,
+                    'avarage_rating': float(avarage_rating_str)}
+        return JsonResponse(context, safe=False)
 
 @verified_email
 @csrf_exempt
@@ -174,6 +186,9 @@ def add_review(request: HttpRequest):
         target = models.Client.objects.get(pk=target_pk)
     except models.Client.DoesNotExist:
         return HttpResponseNotFound('This client does not exit!')
+    print(type(request.user.client.pk), type(target_pk))
+    if int(target_pk) == request.user.client.pk:
+        return HttpResponseForbidden('You can\'t add review about yourself')
     if request.method == 'POST':
         form = forms.ReviewForm(request.POST)
         if form.is_valid():
@@ -209,4 +224,39 @@ def edit_review(request: HttpRequest):
         else:
             return JsonResponse(form.errors)
 
+@verified_email
+@csrf_exempt
+def delete_review(request: HttpRequest):
+    review_pk = request.GET.get('pk', '')
+    if review_pk == '':
+        return HttpResponseBadRequest('Oops.. Something went wrong!')
+    try:
+        review = models.Review.objects.get(pk=review_pk)
+    except models.Client.DoesNotExist:
+        return HttpResponseNotFound('This client does not exit!')
+    if request.method == 'DELETE':
+        if review.author != request.user.client:
+            return HttpResponseForbidden('This isn\'t your review! You can\'t remove it')
+        review.delete()
+        return redirect('shop:home')
+
+@verified_email
+@csrf_exempt
+def get_avarage_rating(request: HttpRequest):
+    client_pk = request.GET.get('pk', '')
+    if client_pk == '':
+            return HttpResponseBadRequest('Oops.. Something went wrong!')
+    try:
+        client = models.Client.objects.get(pk=client_pk)
+    except models.Client.DoesNotExist:
+        return HttpResponseNotFound('This client does not exit!')
+    client_reviews = models.Review.objects.filter(target=client_pk)
+    if len(client_reviews) == 0:
+        return JsonResponse({'avarage_rating': 0})
+    ratings = []
+    for review in client_reviews:
+        ratings.append(review.rating)
+    avarage_rating = sum(ratings) / len(ratings) 
+    return JsonResponse({'avarage_rating': avarage_rating})
+    
 
