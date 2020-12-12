@@ -158,9 +158,20 @@ def change_password(request: HttpRequest):
         return JsonResponse(form.errors)
 
 @login_required
-def my_profile_page(request: HttpRequest):
+def profile_page(request: HttpRequest):
     if request.method == 'GET':
-        client = request.user.client
+        client_pk = request.GET.get('pk', '')
+        if client_pk == '':
+            return HttpResponseBadRequest('Oops.. Something went wrong!')
+        # You can put in client_pk "me" and then client 
+        # will be equal to request.user.client.pk 
+        if client_pk == 'me':
+            client = request.user.client
+        else:
+            try:
+                client = models.Client.objects.get(pk=client_pk)
+            except models.Client.DoesNotExist:
+                return HttpResponseNotFound('This client does not exit!')
         client_serializer = serializers.ClientSerializer(client)
         reviews = models.Review.objects.filter(target=client.pk)
         review_sarializer = serializers.ReviewSerializer(reviews, many=True)
@@ -173,7 +184,7 @@ def my_profile_page(request: HttpRequest):
         avarage_rating_str = avarage_rating[index: len(avarage_rating) - 3]
         print(index, len(avarage_rating) - 3, avarage_rating)
         context = {'client': client_serializer.data, 'reviews': review_sarializer.data,
-                    'avarage_rating': float(avarage_rating_str)}
+                    'avarage_rating': round(float(avarage_rating_str), 1)}
         return JsonResponse(context, safe=False)
 
 @verified_email
@@ -200,7 +211,7 @@ def add_review(request: HttpRequest):
                 author = request.user.client
             )
             review.save()
-            return redirect('shop:home')
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={target_pk}')
         else:
             return JsonResponse(form.errors)
 
@@ -216,11 +227,11 @@ def edit_review(request: HttpRequest):
         return HttpResponseNotFound('This client does not exit!')
     if request.method == 'POST':
         if review.author != request.user.client:
-           return HttpResponseForbidden('This isn\'t your review! You can\'t remove it')
+           return HttpResponseForbidden('This isn\'t your review! You can\'t edit it')
         form = forms.ReviewForm(request.POST, instance=review)
         if form.is_valid():
             form.save()
-            return redirect('shop:home')
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
         else:
             return JsonResponse(form.errors)
 
@@ -238,7 +249,9 @@ def delete_review(request: HttpRequest):
         if review.author != request.user.client:
             return HttpResponseForbidden('This isn\'t your review! You can\'t remove it')
         review.delete()
-        return redirect('shop:home')
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
+
+
 
 @verified_email
 @csrf_exempt
