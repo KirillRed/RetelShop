@@ -4,6 +4,11 @@ from . import models
 from django.core.paginator import Page
 
 
+class ImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.ProductImage
+        fields = ['image']
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -17,12 +22,13 @@ class CategorySerializer(serializers.ModelSerializer):
 class DetailedProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Product
-        fields = '__all__'
+        fields = ['title', 'description', 'price', 'likes_count',
+                'seller', 'category', 'published']
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Product
-        fields = ['title', 'price', 'likes', 'photo', 'published']
+        fields = ['title', 'price', 'likes_count', 'thumbnail_main_photo', 'published']
 
 class PageSerializer(serializers.ModelSerializer):
     class Meta:

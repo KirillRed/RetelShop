@@ -8,7 +8,7 @@ def verified_email(view_func):
     def wrapper_func(request: HttpRequest, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect('registration:login')
-        print(request.user.groups.all())
+        print(request.user)
         if request.user.groups.all()[0].name == 'verified_email':
             return view_func(request, *args, **kwargs)
         else:

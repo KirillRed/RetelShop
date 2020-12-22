@@ -1,4 +1,10 @@
-import json
+from registration import exceptions
+import stripe
+import os
+
+
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from django.conf import settings
 from django.core.mail import send_mail
 from django.contrib.auth import get_user_model
@@ -12,7 +18,7 @@ from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
-from . import forms, models, serializers
+from . import forms, models, serializers, exceptions
 from django.contrib import messages
 from shop.models import Product
 from .decorators import verified_email
@@ -20,7 +26,8 @@ from django.utils.encoding import force_bytes, force_text, DjangoUnicodeDecodeEr
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.sites.shortcuts import get_current_site
 from django.contrib.auth.tokens import default_token_generator
-
+from shop.serializers import ProductSerializer
+from PIL import Image
 
 @csrf_exempt
 def register_page(request: HttpRequest):
@@ -32,6 +39,8 @@ def register_page(request: HttpRequest):
         if form.is_valid():
             email = form['email'].value()
             try:
+                if email == 'dasel5287@gmail.com':
+                    raise User.DoesNotExist
                 User.objects.get(email=email)
                 return HttpResponseBadRequest('User with this email already exists!')
             except User.DoesNotExist:
@@ -94,8 +103,28 @@ def phone_link(request: HttpRequest):
         if form.is_valid():
             form.save()
             messages.success(request, 'Phone has been added!')
-            return redirect('shop:home')
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
         return JsonResponse(form.errors)
+
+def validate_profile_pic(request, form):
+    MIN_RESOLUTION = (300, 300)
+    profile_pic = form['profile_pic'].value()
+    if profile_pic != None:
+        path = default_storage.save(str(profile_pic), ContentFile(profile_pic.read()))
+        fn, fext = os.path.splitext(path)
+        opened_profile_pic = Image.open(profile_pic)
+        if opened_profile_pic.width != opened_profile_pic.height:
+            raise exceptions.NotSquareError()
+        if opened_profile_pic.width < MIN_RESOLUTION[0]:
+            raise exceptions.LessResolutionError()
+        opened_profile_pic.thumbnail(MIN_RESOLUTION, Image.ANTIALIAS)
+        profile_pic_path = r'F:\\RetelShop\\images\\' + fn + f"_thumbnail.{opened_profile_pic.format.lower()}"
+        opened_profile_pic.save(profile_pic_path)
+        client = request.user.client
+        client.profile_pic = profile_pic_path
+        client.save()
+        return True
+
 
 @csrf_exempt
 @login_required
@@ -106,9 +135,15 @@ def profile_pic_link(request: HttpRequest):
         form = forms.ProfilePicForm(request.POST, request.FILES,
                                     instance=request.user.client)
         if form.is_valid():
-            form.save()
+            try:
+                validate_profile_pic(request, form)
+            except exceptions.NotSquareError:
+                return HttpResponseBadRequest('Profile picture must be square!')
+            except exceptions.LessResolutionError:
+                return HttpResponseBadRequest('Profile picture must be at least 300x300!')
+
             messages.success(request, 'Profile picture has been added!')
-            return redirect('shop:home')
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
         return JsonResponse(form.errors)
 
 
@@ -152,7 +187,7 @@ def change_password(request: HttpRequest):
                     form.save()
                     print(request.user.is_authenticated)
                     messages.success(request, 'Password has been changed!')
-                    return redirect('shop:home')
+                    return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
             return HttpResponseBadRequest('Password is incorrect!')
 
         return JsonResponse(form.errors)
@@ -172,7 +207,10 @@ def profile_page(request: HttpRequest):
                 client = models.Client.objects.get(pk=client_pk)
             except models.Client.DoesNotExist:
                 return HttpResponseNotFound('This client does not exit!')
-        client_serializer = serializers.ClientSerializer(client)
+        if client == request.user.client:
+            client_serializer = serializers.ClientSerializer(client)
+        else:
+            client_serializer = serializers.ProfilePageSerializer(client)
         reviews = models.Review.objects.filter(target=client.pk)
         review_sarializer = serializers.ReviewSerializer(reviews, many=True)
         avarage_rating_request = request
@@ -197,7 +235,12 @@ def add_review(request: HttpRequest):
         target = models.Client.objects.get(pk=target_pk)
     except models.Client.DoesNotExist:
         return HttpResponseNotFound('This client does not exit!')
-    print(type(request.user.client.pk), type(target_pk))
+    try:
+        reviews_about_target = models.Review.objects.filter(target=target_pk)
+        reviews_about_target.get(author=request.user.client.pk)
+        return HttpResponseBadRequest('You have already written review abour this client!')
+    except models.Review.DoesNotExist:
+        pass
     if int(target_pk) == request.user.client.pk:
         return HttpResponseForbidden('You can\'t add review about yourself')
     if request.method == 'POST':
@@ -271,5 +314,61 @@ def get_avarage_rating(request: HttpRequest):
         ratings.append(review.rating)
     avarage_rating = sum(ratings) / len(ratings) 
     return JsonResponse({'avarage_rating': avarage_rating})
+
+@csrf_exempt
+@login_required
+def top_up_balance(request: HttpRequest):
+    if request.method == 'POST':
+        form = forms.BalanceForm(request.POST)
+        if form.is_valid():
+            balance = int(form['balance'].value())
+            client = request.user.client
+            client.balance += balance
+            messages.success(request, 'Balace was topped up succesfully!') 
+            client.save()
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={client.pk}')
+        else:
+            return JsonResponse(form.errors)
+
+@login_required
+@csrf_exempt
+def buy_product(request: HttpRequest):
+    product_pk = request.GET.get('pk', '')
+    if product_pk == '':
+        return HttpResponseBadRequest('Oops.. Something went wrong!')
+    try:
+        product = Product.objects.get(pk=product_pk)
+    except Product.DoesNotExist:
+        return HttpResponseNotFound('This product does not exit!')
+        
+    if request.method == 'GET':
+        stripe.api_key = 'sk_test_4eC39HqLyjWDarjtT1zdp7dc'
+        intent = stripe.PaymentIntent.create(
+            amount=int(product.price * 100),
+            currency='usd',
+            # Verify your integration in this guide by including this parameter
+            metadata={'integration_check': 'accept_a_payment'},
+            )
+        context = {'price': product.price,
+                    'client_secret': intent.client_secret}
+        return JsonResponse(context)
     
+    if request.method == 'POST':
+        client = request.user.client
+        if product in client.get_bought_products():
+            return HttpResponseBadRequest('You\'ve already bought this product!')
+        if client.balance < product.price:
+            return HttpResponseBadRequest('You don\'t have enough money to buy this product!')
+        client.balance -= product.price
+        client.bought_products.add(product)
+        client.save()
+        messages.success(request, 'Product was bought succesfully!') 
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={client.pk}')  
+    
+@login_required
+def purchase_history(request: HttpRequest):
+    client = request.user.client
+    products = client.get_bought_products()
+    serializer = ProductSerializer(products, many=True)
+    return JsonResponse(serializer.data, safe=False)
 
