@@ -30,16 +30,14 @@ class SubCategory(models.Model):
 class Product(models.Model):
     title = models.CharField(max_length=30, 
                             validators=[validators.MinLengthValidator(3)])
-           
-    
     description = models.CharField(max_length=500, blank=True, 
                                     default='There is no description on this product')
     price = models.DecimalField(max_digits=13,
                                 decimal_places=2,
-                                validators=[validators.MinValueValidator(0)])
+                                validators=[validators.MinValueValidator(0), validators.MaxValueValidator(999999)])
     likes = models.ManyToManyField('registration.Client', verbose_name='Likes', null=True, blank=True)
-    main_photo = models.ImageField(default=r'F:\RetelShop\images\default_main_photo.png', null=True, blank=True)
-    thumbnail_main_photo = models.ImageField(default='default_main_photo.png', null=True, blank=True)
+    main_photo = models.ImageField(default='default_main_photo.png', blank=True)
+    thumbnail_main_photo = models.ImageField(default='default_main_photo.png', blank=True)
     seller = models.ForeignKey(to=Client, related_name='+', default='', on_delete=models.CASCADE)
     category = models.ForeignKey(to=Category,
                                 default='Fashion and style',
@@ -67,8 +65,8 @@ class Product(models.Model):
         return self.title
 
 class ProductImage(models.Model):
-    image = models.ImageField(null=True)
-    thumbnail_image = models.ImageField(null=True)
+    image = models.ImageField(null=True, blank=True)
+    thumbnail_image = models.ImageField(null=True, blank=True)
     product = models.ForeignKey(to=Product, on_delete=models.CASCADE, related_name='images')
 
 class CartProduct(models.Model):
