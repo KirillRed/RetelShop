@@ -1,3 +1,5 @@
+import json
+import logging
 from registration import exceptions
 import stripe
 import os
@@ -28,6 +30,11 @@ from django.contrib.sites.shortcuts import get_current_site
 from django.contrib.auth.tokens import default_token_generator
 from shop.serializers import ProductSerializer
 from PIL import Image
+from stripe.error import InvalidRequestError
+
+stripe.api_key = 'sk_test_51HyubuDTNgwK2xMeoyk5dWiKmp7Gm5mPk5a7BIy0bzEECfPnYg22HT2oHsX3tEbcu5VV0PWF6JvElS9K8diKgJC200B0JruI7H'
+
+logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def register_page(request: HttpRequest):
@@ -62,6 +69,13 @@ def register_page(request: HttpRequest):
             messages.success(request, 'User has been created!')
             return redirect('shop:home')
         return JsonResponse(form.errors)
+
+
+@csrf_exempt
+def get_stripe_token(request: HttpRequest):
+    if request.method == 'POST':
+        print(request.POST)
+        return HttpResponse('success')
 
 def send_verify_email(request: HttpRequest, user_email):
     user = request.user
@@ -330,7 +344,15 @@ def top_up_balance(request: HttpRequest):
         else:
             return JsonResponse(form.errors)
 
-@login_required
+
+def create_stripe_customer(client, stripeToken):
+    customer = stripe.Customer.create(
+        email=client.email,
+        name=client.name,
+        source=stripeToken
+    )
+    return customer
+
 @csrf_exempt
 def buy_product(request: HttpRequest):
     product_pk = request.GET.get('pk', '')
@@ -340,25 +362,29 @@ def buy_product(request: HttpRequest):
         product = Product.objects.get(pk=product_pk)
     except Product.DoesNotExist:
         return HttpResponseNotFound('This product does not exit!')
-        
-    if request.method == 'GET':
-        stripe.api_key = 'sk_test_4eC39HqLyjWDarjtT1zdp7dc'
-        intent = stripe.PaymentIntent.create(
-            amount=int(product.price * 100),
-            currency='usd',
-            # Verify your integration in this guide by including this parameter
-            metadata={'integration_check': 'accept_a_payment'},
-            )
-        context = {'price': product.price,
-                    'client_secret': intent.client_secret}
-        return JsonResponse(context)
-    
     if request.method == 'POST':
-        client = request.user.client
-        if product in client.get_bought_products():
-            return HttpResponseBadRequest('You\'ve already bought this product!')
-        if client.balance < product.price:
-            return HttpResponseBadRequest('You don\'t have enough money to buy this product!')
+        try:
+            client = request.user.client
+            if client.balance < product.price:
+                return HttpResponseBadRequest('You don\'t have enough money to buy this product!')
+            data = json.loads(request.body)
+            stripeToken = data['stripeToken']
+            if stripeToken is None:
+                return HttpResponseBadRequest('Stripe token cannot be null!')
+            customer = create_stripe_customer(request.user.client, stripeToken)
+            charge = stripe.Charge.create(
+                customer=customer,
+                amount=int(product.price * 100),
+                currency='usd',
+                description='Buying product'
+                )
+        except KeyError as ex:
+            return HttpResponseBadRequest(f'{ex} is required!')
+        except InvalidRequestError as ex:
+            return HttpResponseBadRequest(f'Error with stripe token. More information here:\n {ex}')
+        except Exception:
+            logger.exception('Error')
+            return HttpResponseBadRequest('Error')
         client.balance -= product.price
         client.bought_products.add(product)
         client.save()
@@ -371,4 +397,3 @@ def purchase_history(request: HttpRequest):
     products = client.get_bought_products()
     serializer = ProductSerializer(products, many=True)
     return JsonResponse(serializer.data, safe=False)
-
