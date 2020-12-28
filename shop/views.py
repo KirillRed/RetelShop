@@ -1,10 +1,11 @@
 import json
 import os
-import django
+import logging
+import base64
 
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from registration.exceptions import LessResolutionError
+from registration.exceptions import LessResolutionError, Base64Error, ExtensionError
 from registration.models import Client
 from django.db.models import Q
 from django.contrib.auth.decorators import login_required
@@ -24,16 +25,12 @@ from django.db.utils import IntegrityError
 from PIL import Image, UnidentifiedImageError
 from django.core.exceptions import ValidationError
 
+logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS = ['jpeg', 'jpg', 'bmp', 'gif', 'png']
+
 """This app works with products logic"""
 
-def test_send_email(request):
-    send_mail('Hello',
-    'Test',
-    'htds8891@gmail.com',
-    ['dasel5287@gmail.com'],
-    fail_silently=False)
-
-    return HttpResponse('hello')
 
 def home(request: HttpRequest):
     """Home page with last added products"""
@@ -54,31 +51,34 @@ def home(request: HttpRequest):
                 'page': page_num, 'vapid_key': vapid_key}
     return JsonResponse(context, safe=False)
 
-def thumbnail_product_image(image, image_name, image_path):
+
+def thumbnail_product_image(image, image_name):
     product_image = image
-    if image_path != settings.DEFAULT_IMAGE_PATH:
+    if image != settings.DEFAULT_IMAGE_PATH:
         path = default_storage.save(image_name, ContentFile(product_image.read()))
         fn, fext = os.path.splitext(path)
         opened_product_image = Image.open(product_image)
-        product_image_path = settings.MEDIA_ROOT + fn + f'.{opened_product_image.format.lower()}'
-        opened_product_image.save(product_image_path)
         if opened_product_image.width < settings.MIN_PHOTO_RESOLUTION[0] or opened_product_image.height < settings.MIN_PHOTO_RESOLUTION[1]:
             raise LessResolutionError()
+        product_image_path = settings.MEDIA_ROOT + fn + f'.{opened_product_image.format.lower()}'
+        opened_product_image.save(product_image_path)
         opened_product_image.thumbnail(settings.MIN_PHOTO_RESOLUTION, Image.ANTIALIAS)
-
         thumbnail_product_image_path = settings.MEDIA_ROOT + fn + f"_thumbnail.{opened_product_image.format.lower()}"
         opened_product_image.save(thumbnail_product_image_path)
-        return [product_image_path, thumbnail_product_image_path]
-    return [settings.DEFAULT_IMAGE_PATH, settings.DEFAULT_IMAGE_PATH]
+        return thumbnail_product_image_path
+    return settings.DEFAULT_IMAGE_PATH
 
-def get_image_name(path: str):
-    name = path
-    while '\\' in name:
-        index = name.find('\\')
-        print(index)
-        name = name[index+1:]
-        print
-    return name
+
+def base64_to_image(image_base64):
+    if not ';base64,' in image_base64:
+        raise Base64Error
+    format, imgstr = image_base64.split(';base64,')
+    ext = format.split('/')[-1]
+    if not ext in IMAGE_EXTENSIONS:
+        raise ExtensionError
+    image = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
+    return image
+
 
 @login_required
 @csrf_exempt
@@ -90,35 +90,38 @@ def add_product(request: HttpRequest):
         if len(image_serializer) > 7:
             return HttpResponseBadRequest('You already have 8 images on your photo!')
         try:
-            main_photo_path = product_serializer['main_photo_path']
-            if main_photo_path == '':
-                    main_photo_path = settings.DEFAULT_IMAGE_PATH
-            with open(main_photo_path, 'rb') as image_file:
-                main_photo_name = get_image_name(main_photo_path)
-                product = models.Product(
-                    title = product_serializer['title'],
-                    description = product_serializer['description'],
-                    price = product_serializer['price'],
-                    main_photo_name = main_photo_name,
-                    main_photo_path = main_photo_path,
-                    main_photo = thumbnail_product_image(image_file, main_photo_name, main_photo_path)[0],
-                    thumbnail_main_photo = thumbnail_product_image(image_file, main_photo_name, main_photo_path)[1],
-                    seller = request.user.client,
-                    category = models.Category.objects.get(pk=
-                                product_serializer['category']),
-                    subcategory = models.SubCategory.objects.get(pk=
-                                product_serializer['subcategory'])
-                )
+            main_photo_base64 = product_serializer['main_photo']
+            if main_photo_base64 is not None:
+                main_photo = base64_to_image(main_photo_base64)
+                main_photo_name = main_photo.name
+            else:
+                main_photo = settings.DEFAULT_IMAGE_PATH
+                main_photo_name = '' # I didn't invented hoe to name it so it is empty string
+            product = models.Product(
+                title = product_serializer['title'],
+                description = product_serializer['description'],
+                price = product_serializer['price'],
+                main_photo = main_photo,
+                thumbnail_main_photo = thumbnail_product_image(main_photo, main_photo_name),
+                seller = request.user.client,
+                category = models.Category.objects.get(pk=
+                            product_serializer['category']),
+                subcategory = models.SubCategory.objects.get(pk=
+                            product_serializer['subcategory'])
+            )
             product.save()
+        except ExtensionError:
+            return HttpResponseBadRequest('Extension isn\'t suportable')
         except KeyError as ex:
             return HttpResponseBadRequest(f'You must indicate {ex}')
         except LessResolutionError:
             return HttpResponseBadRequest('Product image resolution is less than mimimal!')
         except IntegrityError as ex:
             return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
-        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError) as ex:
+        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError, ValueError, OSError) as ex:
             return HttpResponseBadRequest(ex)
-        except:
+        except Exception as ex:
+            logger.exception('Some error detected')
             return HttpResponseBadRequest('Some error detected')
         return add_product_image(request=request, product=product)
 
@@ -127,19 +130,29 @@ def add_product(request: HttpRequest):
 @csrf_exempt  
 def add_product_image(request: HttpRequest, product: models.Product):
     image_serializer = json.loads(request.body)['images']
-    for image in image_serializer:
-        path = image['path']
-        with open(path, 'rb') as image_file:
-            name = get_image_name(path)
-            product_image = models.ProductImage(
-                name = name,
-                path = path,
-                image = thumbnail_product_image(image_file, name, path)[0],
-                thumbnail_image = thumbnail_product_image(image_file, name, path)[1],
-                product = models.Product.objects.get(pk=product.pk)
-            )
-            
-            product_image.save()
+    for product_image in image_serializer:
+        try:
+            image_base64 = product_image['image']
+            if image_base64 is not None:
+                image = base64_to_image(image_base64)
+                product_image = models.ProductImage(
+                    image = image,
+                    thumbnail_image = thumbnail_product_image(image, image.name),
+                    product = models.Product.objects.get(pk=product.pk))
+                product_image.save()
+        except ExtensionError:
+            return HttpResponseBadRequest('Extension isn\'t suportable')
+        except KeyError as ex:
+            return HttpResponseBadRequest(f'You must indicate {ex}')
+        except LessResolutionError:
+            return HttpResponseBadRequest('Product image resolution is less than mimimal!')
+        except IntegrityError as ex:
+            return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
+        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError, ValueError, OSError) as ex:
+            return HttpResponseBadRequest(ex)
+        except:
+            logger.exception('Some error detected')
+            return HttpResponseBadRequest('Some error detected')
     return redirect('shop:home')
 
 
@@ -158,38 +171,38 @@ def edit_product(request: HttpRequest):
         if product.seller != request.user.client:
             return HttpResponseForbidden('This isn\'t your product! You can\'t edit it!')
         product_serializer = json.loads(request.body)['product']
-        image_serializer = json.loads(request.body)['images']
-        if len(image_serializer) > 7:
-            return HttpResponseBadRequest('You already have 8 images on your photo!')
-        main_photo_path = product_serializer['main_photo_path']
         try:
-            if main_photo_path != product.main_photo_path:
-                if main_photo_path == '' or main_photo_path == None:
-                    main_photo_path = settings.DEFAULT_IMAGE_PATH
-                product.main_photo_name = get_image_name(main_photo_path)
-                main_photo_name = product.main_photo_name
-                with open(main_photo_path, 'rb') as image_file:
-                    product.main_photo = thumbnail_product_image(image_file, main_photo_name, main_photo_path)[0]
-                    product.thumbnail_main_photo = thumbnail_product_image(image_file, main_photo_name, main_photo_path)[1]
+            main_photo_base64 = product_serializer['main_photo']
+            if main_photo_base64 is not None:
+                main_photo = base64_to_image(main_photo_base64)
+                main_photo_name = main_photo.name
+            else:
+                main_photo = settings.DEFAULT_IMAGE_PATH
+                main_photo_name = 'main'
+            product.main_photo = main_photo
+            product.thumbnail_main_photo = thumbnail_product_image(main_photo, main_photo_name)
             product.title = product_serializer['title']
             product.description = product_serializer['description']
             product.price = product_serializer['price']
             product.category = models.Category.objects.get(pk=product_serializer['category'])
             product.subcategory = models.SubCategory.objects.get(pk=product_serializer['subcategory'])
             product.save()
+        except ExtensionError:
+            return HttpResponseBadRequest('Extension isn\'t suportable')
         except KeyError as ex:
             return HttpResponseBadRequest(f'You must indicate {ex}')
         except LessResolutionError:
             return HttpResponseBadRequest('Product image resolution is less than mimimal!')
         except IntegrityError as ex:
             return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
-        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError) as ex:
+        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError, ValueError, OSError) as ex:
             return HttpResponseBadRequest(ex)
         except UnidentifiedImageError:
             return HttpResponseBadRequest('This isn\'t image!')
         except FileNotFoundError:
             return HttpResponseBadRequest('This file doesn\'t exist!')
         except:
+            logger.exception('Some error detected')
             return HttpResponseBadRequest('Some error detected')
         return redirect('shop:home')
 
@@ -205,40 +218,36 @@ def edit_product_image(request: HttpRequest):
         product_image = models.ProductImage.objects.get(pk=product_image_pk)
     except models.ProductImage.DoesNotExist:
         return HttpResponseNotFound('This image doesn\'t exit!')
-    index =request.GET.get('index', '')
-    if index == '':
-        return HttpResponseBadRequest('Oops... Something went wrong!')
-    index = int(index)
-    if index > 7:
-        return HttpResponseBadRequest('Index out of range!')
     if request.method == 'POST':
         if product_image.product.seller != request.user.client:
             return HttpResponseForbidden('This isn\'t your product! You can\'t edit it!')
         try:
             image_serializer = json.loads(request.body)['image']
-            if image_serializer != product_image.product.images.all()[index]:
-                path = image_serializer['path']
-                with open(path, 'rb') as image_file:
-                    name = get_image_name(path)
-                    product_image.path = path
-                    product_image.name = name
-                    product_image.image = thumbnail_product_image(image_file, name, path)[0]
-                    product_image.thumbnail_image = thumbnail_product_image(image_file, name, path)[1]
-                    product_image.save()
+            image_base64 = image_serializer['image']
+            if image_base64 is not None:
+                image = base64_to_image(image_base64)
+                product_image.image = image
+                product_image.thumbnail_image = thumbnail_product_image(image, image.name)
+                product_image.save()
+        except ExtensionError:
+            return HttpResponseBadRequest('Extension isn\'t suportable')
         except KeyError as ex:
             return HttpResponseBadRequest(f'You must indicate {ex}')
         except LessResolutionError:
             return HttpResponseBadRequest('Product image resolution is less than mimimal!')
         except IntegrityError as ex:
             return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
-        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError) as ex:
+        except (models.Category.DoesNotExist, models.SubCategory.DoesNotExist, TypeError, ValidationError, ValueError, OSError) as ex:
             return HttpResponseBadRequest(ex)
         except UnidentifiedImageError:
             return HttpResponseBadRequest('This isn\'t image!')
         except FileNotFoundError:
             return HttpResponseBadRequest('This file doesn\'t exist!')
-        # except:
-        #     return HttpResponseBadRequest('Some error detected')
+        except Base64Error:
+            return HttpResponseBadRequest('Base64 was incorrect')
+        except:
+            logger.exception('Some error detected')
+            return HttpResponseBadRequest('Some error detected')
         return redirect('shop:home')
         
             
