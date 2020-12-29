@@ -394,21 +394,44 @@ def add_product_to_cart(request: HttpRequest):
         product = models.Product.objects.get(pk=pk)
     except models.Product.DoesNotExist:
         return HttpResponseNotFound('This product doesn\'t exit!')
-    data = json.loads(request.body)
-    quantity = int(data['quantity'])
-    client = request.user.client
-    cart = models.Cart.objects.get(owner=client)
-    cart_product = models.CartProduct(
-        client=client,
-        cart=cart,
-        product=product,
-        qty=quantity,
-        final_price=product.price * quantity
-    )
-    cart_product.save()
-    cart.related_products.add(cart_product)
-    cart.total_products += cart_product.qty
-    cart.final_price += cart_product.final_price
-    cart.save()
-    messages.success(request, 'Product was added to cart successfully!')
-    return redirect('shop:home')
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        quantity = int(data['quantity'])
+        client = request.user.client
+        cart = models.Cart.objects.get(owner=client)
+        cart_product = models.CartProduct(
+            client=client,
+            cart=cart,
+            product=product,
+            qty=quantity,
+            final_price=product.price * quantity
+        )
+        cart_product.save()
+        cart.related_products.add(cart_product)
+        cart.total_products += cart_product.qty
+        cart.final_price += cart_product.final_price
+        cart.save()
+        messages.success(request, 'Product was added to cart successfully!')
+        return redirect('shop:home')
+
+
+@csrf_exempt
+@login_required
+@verified_email
+def remove_product_from_cart(request: HttpRequest):
+    pk = request.GET.get('pk', '')
+    if pk == '':
+        return HttpResponseNotFound('Oops... Something went wrong!')
+    try:
+        cart_product = models.CartProduct.objects.get(pk=pk)
+    except models.CartProduct.DoesNotExist:
+        return HttpResponseNotFound('This product doesn\'t exit!')
+    if request.method == 'DELETE':
+        client = request.user.client
+        cart_product.delete()
+        cart = models.Cart.objects.get(owner=client)
+        cart.total_products -= cart_product.qty
+        cart.final_price -= cart_product.final_price
+        cart.save()
+        messages.success(request, 'Product was removed from cart successfully!')
+        return redirect('shop:home')
