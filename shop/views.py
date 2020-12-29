@@ -2,6 +2,7 @@ import json
 import os
 import logging
 import base64
+from registration.decorators import verified_email
 
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -369,6 +370,7 @@ def like(request: HttpRequest):
             serializer = serializers.ProductSerializer(product)
             return JsonResponse(serializer.data, safe=False)
             
+
 @login_required
 def your_products(request: HttpRequest):
     if request.method == 'GET':
@@ -379,3 +381,34 @@ def your_products(request: HttpRequest):
         print(products)
         serializer = serializers.ProductSerializer(products, many=True)
         return JsonResponse(serializer.data, safe=False)
+
+
+@csrf_exempt
+@login_required
+@verified_email
+def add_product_to_cart(request: HttpRequest):
+    pk = request.GET.get('pk', '')
+    if pk == '':
+        return HttpResponseNotFound('Oops... Something went wrong!')
+    try:
+        product = models.Product.objects.get(pk=pk)
+    except models.Product.DoesNotExist:
+        return HttpResponseNotFound('This product doesn\'t exit!')
+    data = json.loads(request.body)
+    quantity = int(data['quantity'])
+    client = request.user.client
+    cart = models.Cart.objects.get(owner=client)
+    cart_product = models.CartProduct(
+        client=client,
+        cart=cart,
+        product=product,
+        qty=quantity,
+        final_price=product.price * quantity
+    )
+    cart_product.save()
+    cart.related_products.add(cart_product)
+    cart.total_products += cart_product.qty
+    cart.final_price += cart_product.final_price
+    cart.save()
+    messages.success(request, 'Product was added to cart successfully!')
+    return redirect('shop:home')
