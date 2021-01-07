@@ -1,0 +1,2 @@
+class InBlockedListException(Exception):
+    pass
