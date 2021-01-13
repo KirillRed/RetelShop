@@ -2,7 +2,7 @@
 from registration.models import Client
 from django.db import models
 from django.core import validators
-from django.contrib.auth.models import User
+import eav
 
 
 
@@ -22,7 +22,6 @@ class SubCategory(models.Model):
 
     def __str__(self) -> str:
         return self.title
-
 
 
 
@@ -64,6 +63,10 @@ class Product(models.Model):
     def __str__(self) -> str:
         return self.title
 
+
+eav.register(Product)
+
+
 class ProductImage(models.Model):
     image = models.ImageField(null=True, blank=True)
     thumbnail_image = models.ImageField(null=True, blank=True)
@@ -71,7 +74,7 @@ class ProductImage(models.Model):
 
 class CartProduct(models.Model):
     client = models.ForeignKey(to=Client, on_delete=models.CASCADE)
-    cart = models.ForeignKey(to='Cart', on_delete=models.CASCADE, related_name='related_cart')
+    cart = models.ForeignKey(to='Cart', on_delete=models.CASCADE, related_name='related_products')
     product = models.ForeignKey(to=Product, on_delete=models.CASCADE)
     qty = models.PositiveIntegerField(default=1)
     final_price = models.DecimalField(max_digits=13, decimal_places=2)
@@ -79,11 +82,32 @@ class CartProduct(models.Model):
     def __str__(self) -> str:
         return f'{self.product.title} in cart'
 
+    def get_product_image(self):
+        return self.product.thumbnail_main_photo
+
+    def get_product_title(self):
+        return self.product.title
+
+    def get_product_price(self):
+        return self.product.price
+
 class Cart(models.Model):
-    owner = models.ForeignKey(to=Client, on_delete=models.CASCADE)
-    products = models.ManyToManyField(to=CartProduct, blank=True, related_name='related_products')
+    owner = models.OneToOneField(to=Client, on_delete=models.CASCADE, related_name='cart')
+    products = models.ManyToManyField(to=CartProduct, blank=True, related_name='related_cart')
     total_products = models.PositiveIntegerField(default=0)
-    final_price = models.DecimalField(max_digits=13, decimal_places=2)
+    final_price = models.DecimalField(max_digits=13, decimal_places=2, blank=True, default=0)
 
     def __str__(self) -> str:
         return f'{self.owner.name}\'s cart'
+
+    def get_products(self):
+        return [cart_product for cart_product in self.related_products.all()]
+
+
+class ListOfComparisons(models.Model):
+    owner = models.ForeignKey(to=Client, on_delete=models.CASCADE, related_name='list_of_compraisons')
+    products = models.ManyToManyField(to=Product, blank=True)
+    subcategory = models.ForeignKey(to=SubCategory, on_delete=models.CASCADE)
+
+    def get_products(self):
+        return [product for product in self.products.all()]
