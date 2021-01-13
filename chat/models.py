@@ -10,7 +10,7 @@ class RoomManager(models.Manager):
         qlookup = Q(first=client) | Q(second=client)
         qlookup2 = Q(first=client) & Q(second=client)
         qs = self.get_queryset().filter(qlookup).exclude(qlookup2).distinct()
-        return qs
+        return reversed(qs.order_by('updated'))
 
     def get_or_new(self, client, other_client_name): # get_or_create
         client_name = client.name
