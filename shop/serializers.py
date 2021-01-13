@@ -4,6 +4,22 @@ from . import models
 from django.core.paginator import Page
 
 
+class ListOfComperisonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.ListOfComparisons
+        fields = ['owner', 'get_products', 'subcategory']
+
+class CartProductSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.CartProduct
+        fields = ['get_product_title', 'get_product_image', 'get_product_price', 'qty', 'pk']
+
+class CreateProductSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = models.Product
+        fields = ['title', 'description', 'price', 'main_photo', 'category', 'subcategory']
+
 class ImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.ProductImage
@@ -17,13 +33,17 @@ class UserSerializer(serializers.ModelSerializer):
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Category
-        fields = '__all__'
+        fields = ['title']
+
+class SubCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.SubCategory
+        fields = ['title']
 
 class DetailedProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Product
-        fields = ['title', 'description', 'price', 'likes_count',
-                'seller', 'category', 'published']
+        fields = ['title', 'description', 'price', 'likes_count', 'published']
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:

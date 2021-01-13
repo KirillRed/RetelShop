@@ -13,7 +13,7 @@ from registration.exceptions import LessResolutionError, Base64Error, ExtensionE
 
 from registration.models import Client
 from django.db.models import Q
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden, HttpResponseNotFound
 from rest_framework.response import Response
@@ -227,7 +227,6 @@ def set_product_specifications(request: HttpRequest):
 @login_required
 def compare_show_all(request: HttpRequest):
     pk = request.GET.get('pk', '')
-    show = request.GET.get('show', '') #show all specifications or show only differences
     if pk == '':
         return HttpResponseBadRequest('Oops... Something went wrong!')
     try:
@@ -235,10 +234,10 @@ def compare_show_all(request: HttpRequest):
     except models.SubCategory.DoesNotExist:
         return HttpResponseNotFound('This subcategory doesn\'t exit!')
     try:
-        list_of_compresions = models.ListOfComparisons.objects.get(owner=request.user.client.pk, subcategory=subcategory.pk)
+        list_of_comparisons = models.ListOfComparisons.objects.get(owner=request.user.client.pk, subcategory=subcategory.pk)
     except models.ListOfComparisons.DoesNotExist:
-        return HttpResponseNotFound('List of compresions with this subcategory does not exist')
-    products = list_of_compresions.products.all()
+        return HttpResponseBadRequest('This list does not exist')
+    products = list_of_comparisons.products.all()
     result = []
     specification_list = []
     new_request = request
@@ -253,19 +252,90 @@ def compare_show_all(request: HttpRequest):
             specification_list.append(list(product.eav.get_values_dict().keys())[0])
         result.append(product_specifications)
     specification_list = list(set(specification_list)) #Makes this list unique
-    product_specifications_only = [{}]
-    index = 0
 
     #Check if specification not in product than it will be set to None
     for dict_product in result:
         for specification in specification_list:
             if specification not in list(dict_product.keys()):
                 dict_product[specification] = None
-            product_specifications_only[index].update({specification: dict_product[specification]})
-        index += 1
-        product_specifications_only.append({}) 
-    product_specifications_only.remove({})
     return JsonResponse({'products': result}, safe=False)
+
+
+@login_required
+def get_client_lists_of_comparisons(request: HttpRequest):
+    client = request.user.client
+    list_of_comparisons = models.ListOfComparisons.objects.filter(owner=client.pk)
+    serializer = serializers.ListOfComperisonSerializer(list_of_comparisons, many=True)
+    serializer_data = serializer.data
+    result = []
+    for list_of_comparison in serializer_data:
+        list_of_comparison = dict(list_of_comparison)
+        list_of_comparison['get_products'] = serializers.ProductSerializer(
+                                            list_of_comparison['get_products'], many=True).data
+        result.append(list_of_comparison)
+        
+    return JsonResponse(result, safe=False)
+
+
+@login_required
+@csrf_exempt
+def add_product_to_comparison_list(request: HttpRequest):
+    pk = request.GET.get('pk', '')
+    if pk == '':
+        return HttpResponseBadRequest('Oops... Something went wrong!')
+    try:
+        product = models.Product.objects.get(pk=pk)
+    except models.Product.DoesNotExist:
+        return HttpResponseNotFound('This product doesn\'t exist!')
+    subcategory = product.subcategory
+    try:
+        list_of_comparisons = models.ListOfComparisons.objects.get(owner=request.user.client.pk, subcategory=subcategory.pk)
+    except models.ListOfComparisons.DoesNotExist:
+        list_of_comparisons = models.ListOfComparisons.objects.create(owner=request.user.client, subcategory=subcategory)
+    
+    if product in list_of_comparisons.products.all():
+        return HttpResponseBadRequest('This product already in your list of comparisons ')
+
+    if list_of_comparisons.products.count() == 10:
+        return HttpResponseBadRequest('You already have 10 products in your list of comparisons !')
+
+    if request.method == 'POST':
+        list_of_comparisons.products.add(product)
+        new_request = request
+        new_request.GET._mutable = True
+        new_request.GET['pk'] = subcategory.pk
+        return compare_show_all(new_request)
+
+
+@login_required
+@csrf_exempt
+def remove_product_from_compraison_list(request: HttpRequest):
+    pk = request.GET.get('pk', '')
+    if pk == '':
+        return HttpResponseBadRequest('Oops... Something went wrong!')
+    try:
+        product = models.Product.objects.get(pk=pk)
+    except models.Product.DoesNotExist:
+        return HttpResponseNotFound('This product doesn\'t exist!')
+    subcategory = product.subcategory
+    try:
+        list_of_comparisons = models.ListOfComparisons.objects.get(owner=request.user.client.pk, subcategory=subcategory.pk)
+    except models.ListOfComparisons.DoesNotExist:
+        return HttpResponseBadRequest('This product is not in list of comparisons')
+
+    if product not in list_of_comparisons.products.all():
+        return HttpResponseBadRequest('This product is not in list of comparisons')
+
+    if request.method == 'DELETE':
+        if list_of_comparisons.products.count() == 1:
+            list_of_comparisons.delete()
+            return redirect('registration:get_client_lists_of_comparisons')
+        list_of_comparisons.products.remove(product)
+        new_request = request
+        new_request.GET._mutable = True
+        new_request.GET['pk'] = subcategory.pk
+        return compare_show_all(new_request)
+    
 
 
 @login_required
