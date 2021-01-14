@@ -3,7 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .utils import get_client_or_error, get_or_create_room, create_room_message
 
-from .exceptions import InBlockedListException
+from .exceptions import ClientException, InBlockedListException
 
 import json
 
@@ -13,7 +13,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.other_client_name = self.scope['url_route']['kwargs']['client_name']
         try:
             await get_client_or_error(user, self.other_client_name)
-        except (Client.DoesNotExist, InBlockedListException):
+        except (Client.DoesNotExist, InBlockedListException, ClientException):
             self.room_name = 'Error'
             self.close()
         else:
