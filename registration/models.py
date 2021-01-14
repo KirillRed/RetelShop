@@ -12,14 +12,14 @@ class Client(models.Model):
     email = models.CharField(max_length=200)
     profile_pic = models.ImageField(default='default_profile_pic.png', blank=True)
     balance = models.PositiveIntegerField(default=0)
-    bought_products = models.ManyToManyField(to='shop.Product', related_name='-+', null=True, blank=True)
+    bought_products = models.ManyToManyField(to='shop.CartProduct', related_name='client_buyers', null=True, blank=True)
     date_created = models.DateTimeField(auto_now_add=True, null=True)
 
     def __str__(self):
         return self.name
 
     def get_bought_products(self):
-        return [cl for cl in self.bought_products.all()]
+        return [cart_product for cart_product in self.bought_products.all()]
 
 class Review(models.Model):
     #From 1 star to 5 stars
@@ -27,8 +27,8 @@ class Review(models.Model):
     title = models.CharField(max_length=50, validators=[validators.MinLengthValidator(2)])
     text = models.CharField(max_length=500, validators=[validators.MinLengthValidator(5)])
     #Client-recipient
-    target = models.ForeignKey(to=Client, on_delete=models.CASCADE, related_name='+')
+    target = models.ForeignKey(to=Client, on_delete=models.CASCADE, related_name='review_about_client')
     #Client-author
-    author = models.ForeignKey(to=Client, on_delete=models.CASCADE)
+    author = models.ForeignKey(to=Client, on_delete=models.CASCADE,related_name='client_reviews' )
     date_created = models.DateTimeField(auto_now_add=True)
      

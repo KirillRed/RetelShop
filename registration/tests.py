@@ -67,7 +67,7 @@ class PuchaseHistoryAPITest(APITestCase):
         self.assertEqual(dict_response[0]['title'], product.title)
 
 
-class AvarageRatingAPITest(APITestCase):
+class AverageRatingAPITest(APITestCase):
     def setUp(self):
         User = get_user_model()
         user_author = User.objects.create_user(username='TestAuthor', password='TestAuthorPassword', email='testauthormail@gmail.com')
@@ -122,10 +122,10 @@ class AvarageRatingAPITest(APITestCase):
     def test_get(self):
         expected_result = 3.0
         self.client.login(username=self.client_author.name, password='TestAuthorPassword')
-        url = reverse_lazy('registration:avarage_rating') + '?pk=2'
+        url = reverse_lazy('registration:average_rating') + '?pk=2'
         response = self.client.get(url, follow=True).content
         dict_response = byte_response_to_dict(response)
-        self.assertEqual(dict_response['avarage_rating'], expected_result)
+        self.assertEqual(dict_response['average_rating'], expected_result)
 
 class ProfilePageAPITest(APITestCase):
     def setUp(self):

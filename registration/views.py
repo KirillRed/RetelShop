@@ -3,6 +3,8 @@ import logging
 from registration import exceptions
 import stripe
 import os
+import math
+import ast
 
 
 from django.core.files.storage import default_storage
@@ -12,7 +14,7 @@ from django.core.mail import send_mail
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User, Group, UserManager
 from django.urls.base import reverse_lazy
-from registration.models import Client
+from shop import models as shop_models
 from django.http.response import HttpResponseBadRequest, HttpResponseForbidden, HttpResponseNotFound
 from django.contrib.auth.decorators import login_required
 from django.http.request import HttpRequest
@@ -28,9 +30,12 @@ from django.utils.encoding import force_bytes, force_text, DjangoUnicodeDecodeEr
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.sites.shortcuts import get_current_site
 from django.contrib.auth.tokens import default_token_generator
-from shop.serializers import ProductSerializer
+from shop.serializers import CartProductSerializer
 from PIL import Image
 from stripe.error import InvalidRequestError
+
+from chat.models import BlackList
+from rest_framework.authtoken.models import Token
 
 stripe.api_key = 'sk_test_51HyubuDTNgwK2xMeoyk5dWiKmp7Gm5mPk5a7BIy0bzEECfPnYg22HT2oHsX3tEbcu5VV0PWF6JvElS9K8diKgJC200B0JruI7H'
 
@@ -61,10 +66,20 @@ def register_page(request: HttpRequest):
             g = Group.objects.get(name='no_verified_email')
             g.user_set.add(user)
             send_verify_email(request=request, user_email=email)
-            models.Client.objects.create(
+            client = models.Client.objects.create(
                 user=request.user,
                 name=form['username'].value(),
                 email=form['email'].value(),
+            )
+            client.save()
+            shop_models.Cart.objects.create(
+                owner=client
+            )
+            BlackList.objects.create(
+                owner=client
+            )
+            Token.objects.create(
+                user=request.user
             )
             messages.success(request, 'User has been created!')
             return redirect('shop:home')
@@ -120,6 +135,7 @@ def phone_link(request: HttpRequest):
             return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
         return JsonResponse(form.errors)
 
+
 def validate_profile_pic(request, form):
     MIN_RESOLUTION = (300, 300)
     profile_pic = form['profile_pic'].value()
@@ -163,21 +179,28 @@ def profile_pic_link(request: HttpRequest):
 
 @csrf_exempt
 def login_page(request: HttpRequest):
+    print(request.GET)
     if request.user.is_authenticated:
         return HttpResponseBadRequest('You are already authenticated!')
     form = forms.LoginForm()
     if request.method == 'POST':
-        form = forms.LoginForm(request.POST)
-        username = form['username'].value()
-        password = form['password'].value()
+        try:
+            form = forms.LoginForm(request.POST)
+            username = form['username'].value()
+            password = form['password'].value()
 
-        user = authenticate(request, username=username, password=password)
+            user = authenticate(request, username=username, password=password)
 
-        if user is not None:
-            login(request, user)
-            messages.success(request, 'User has been logined!')
-            return redirect('shop:home')
+            if user is not None:
+                login(request, user)
+                messages.success(request, 'User has been logined!')
+                print('asd')
+                return redirect('shop:home')
+        except Exception as ex:
+            logger.exception(ex)
+            return HttpResponseBadRequest('')
         return HttpResponseBadRequest('Username or password are incorrect!')
+    print(request.method)
 
 @login_required
 def logout_user(request: HttpRequest):
@@ -186,6 +209,7 @@ def logout_user(request: HttpRequest):
 
 @login_required
 @csrf_exempt
+@verified_email
 def change_password(request: HttpRequest):
     form = forms.CheckPasswordForm
     if request.method == 'POST':
@@ -212,32 +236,29 @@ def profile_page(request: HttpRequest):
         client_pk = request.GET.get('pk', '')
         if client_pk == '':
             return HttpResponseBadRequest('Oops.. Something went wrong!')
-        # You can put in client_pk "me" and then client 
-        # will be equal to request.user.client.pk 
-        if client_pk == 'me':
-            client = request.user.client
-        else:
-            try:
-                client = models.Client.objects.get(pk=client_pk)
-            except models.Client.DoesNotExist:
-                return HttpResponseNotFound('This client does not exit!')
+        try:
+            client = models.Client.objects.get(pk=client_pk)
+        except models.Client.DoesNotExist:
+            return HttpResponseNotFound('This client does not exit!')
         if client == request.user.client:
             client_serializer = serializers.ClientSerializer(client)
         else:
             client_serializer = serializers.ProfilePageSerializer(client)
         reviews = models.Review.objects.filter(target=client.pk)
         review_sarializer = serializers.ReviewSerializer(reviews, many=True)
-        avarage_rating_request = request
-        avarage_rating_request.GET._mutable = True
-        avarage_rating_request.GET['pk'] = client.pk
-        avarage_rating = get_avarage_rating(avarage_rating_request).__dict__['_container']
-        avarage_rating = str(avarage_rating)
-        index = avarage_rating.find(':') + 2
-        avarage_rating_str = avarage_rating[index: len(avarage_rating) - 3]
-        print(index, len(avarage_rating) - 3, avarage_rating)
+        average_rating_request = request
+        average_rating_request.GET._mutable = True
+        average_rating_request.GET['pk'] = client.pk
+        average_rating = get_average_rating(average_rating_request).__dict__['_container']
+        average_rating = average_rating[0]
+        decoded_rating= average_rating.decode('UTF-8')
+        print(decoded_rating)
+        dict_rating = ast.literal_eval(decoded_rating)
+
         context = {'client': client_serializer.data, 'reviews': review_sarializer.data,
-                    'avarage_rating': round(float(avarage_rating_str), 1)}
+                    'average_rating': round(dict_rating['average_rating'], 1)}
         return JsonResponse(context, safe=False)
+
 
 @verified_email
 @csrf_exempt
@@ -309,10 +330,8 @@ def delete_review(request: HttpRequest):
         return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
 
 
-
-@verified_email
 @csrf_exempt
-def get_avarage_rating(request: HttpRequest):
+def get_average_rating(request: HttpRequest):
     client_pk = request.GET.get('pk', '')
     if client_pk == '':
             return HttpResponseBadRequest('Oops.. Something went wrong!')
@@ -322,27 +341,13 @@ def get_avarage_rating(request: HttpRequest):
         return HttpResponseNotFound('This client does not exit!')
     client_reviews = models.Review.objects.filter(target=client_pk)
     if len(client_reviews) == 0:
-        return JsonResponse({'avarage_rating': 0})
+        return JsonResponse({'average_rating': 0})
     ratings = []
     for review in client_reviews:
         ratings.append(review.rating)
-    avarage_rating = sum(ratings) / len(ratings) 
-    return JsonResponse({'avarage_rating': avarage_rating})
+    average_rating = sum(ratings) / len(ratings) 
+    return JsonResponse({'average_rating': average_rating})
 
-@csrf_exempt
-@login_required
-def top_up_balance(request: HttpRequest):
-    if request.method == 'POST':
-        form = forms.BalanceForm(request.POST)
-        if form.is_valid():
-            balance = int(form['balance'].value())
-            client = request.user.client
-            client.balance += balance
-            messages.success(request, 'Balace was topped up succesfully!') 
-            client.save()
-            return redirect(reverse_lazy('registration:profile_page') + f'?pk={client.pk}')
-        else:
-            return JsonResponse(form.errors)
 
 
 def create_stripe_customer(client, stripeToken):
@@ -353,31 +358,26 @@ def create_stripe_customer(client, stripeToken):
     )
     return customer
 
+
 @csrf_exempt
-def buy_product(request: HttpRequest):
-    product_pk = request.GET.get('pk', '')
-    if product_pk == '':
-        return HttpResponseBadRequest('Oops.. Something went wrong!')
-    try:
-        product = Product.objects.get(pk=product_pk)
-    except Product.DoesNotExist:
-        return HttpResponseNotFound('This product does not exit!')
+@login_required
+def top_up_balance(request: HttpRequest):
     if request.method == 'POST':
         try:
-            client = request.user.client
-            if client.balance < product.price:
-                return HttpResponseBadRequest('You don\'t have enough money to buy this product!')
             data = json.loads(request.body)
+            amount = float(data['amount'])
+            if amount > 999999:
+                return HttpResponseBadRequest('999999 usd is max price to top up')
             stripeToken = data['stripeToken']
             if stripeToken is None:
                 return HttpResponseBadRequest('Stripe token cannot be null!')
             customer = create_stripe_customer(request.user.client, stripeToken)
             charge = stripe.Charge.create(
-                customer=customer,
-                amount=int(product.price * 100),
-                currency='usd',
-                description='Buying product'
-                )
+                    customer=customer,
+                    amount=math.ceil(amount * 100),
+                    currency='usd',
+                    description='Top up balance'
+                    )
         except KeyError as ex:
             return HttpResponseBadRequest(f'{ex} is required!')
         except InvalidRequestError as ex:
@@ -385,15 +385,16 @@ def buy_product(request: HttpRequest):
         except Exception:
             logger.exception('Error')
             return HttpResponseBadRequest('Error')
-        client.balance -= product.price
-        client.bought_products.add(product)
+        client = request.user.client
+        client.balance += amount
+        messages.success(request, 'Balace was topped up succesfully!') 
         client.save()
-        messages.success(request, 'Product was bought succesfully!') 
-        return redirect(reverse_lazy('registration:profile_page') + f'?pk={client.pk}')  
-    
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={client.pk}')
+
+
 @login_required
 def purchase_history(request: HttpRequest):
     client = request.user.client
-    products = client.get_bought_products()
-    serializer = ProductSerializer(products, many=True)
+    cart_products = client.get_bought_products()
+    serializer = CartProductSerializer(cart_products, many=True)
     return JsonResponse(serializer.data, safe=False)
