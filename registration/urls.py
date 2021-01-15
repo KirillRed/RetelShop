@@ -35,4 +35,5 @@ urlpatterns = [
     path('top_up_balance/', views.top_up_balance, name='top_up_balance'),
     path('purchase_history/', views.purchase_history, name='purchase_history'),
     path('get_stripe_token/', views.get_stripe_token, name='get_stripe_token')
+    
 ]
