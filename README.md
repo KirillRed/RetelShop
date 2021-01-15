@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # RetelShop
 ## Introduction
 ---
@@ -22,7 +21,6 @@ python manage.py runserver
 ## Technologies and features
 ---
 My site is written on [django](https://www.djangoproject.com "django"). I also use [django rest framework](https://www.django-rest-framework.org "django rest framework") for apis. In my site there is chat which is written via [django channels](https://channels.readthedocs.io/en/stable/introduction.html "django channels") and there is also chatbot written via [chatterbot](https://chatterbot.readthedocs.io/en/stable/, "chatterbot"). And of course there are shop features like list of comperison, cart and wish list.
-=======
 # RetelShop
 ## Introduction
 ---
@@ -46,4 +44,3 @@ python manage.py runserver
 ## Technologies and features
 ---
 My site is written on [django](https://www.djangoproject.com "django"). I also use [django rest framework](https://www.django-rest-framework.org "django rest framework") for apis. In my site there is chat which is written via [django channels](https://channels.readthedocs.io/en/stable/introduction.html "django channels") and there is also chatbot written via [chatterbot](https://chatterbot.readthedocs.io/en/stable/, "chatterbot"). And of course there are shop features like list of comperison, cart and wish list.
->>>>>>> 15129b6f469e3a472583cfad86b7cc5cb500f9cc
