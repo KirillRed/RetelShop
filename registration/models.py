@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.core import validators
+from django.core.exceptions import ValidationError
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
@@ -7,9 +8,7 @@ from phonenumber_field.modelfields import PhoneNumberField
 
 class Client(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    name = models.CharField(max_length=200)
     phone = PhoneNumberField(null=True, blank=True, unique=True)
-    email = models.CharField(max_length=200)
     profile_pic = models.ImageField(default='default_profile_pic.png', blank=True)
     balance = models.PositiveIntegerField(default=0)
     bought_products = models.ManyToManyField(to='shop.CartProduct', related_name='client_buyers', null=True, blank=True)
@@ -17,6 +16,26 @@ class Client(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def name(self):
+        return self.user.username
+
+    @name.setter
+    def set_name(self, value: str):
+        if len(value) > 20:
+            raise ValidationError('Name must be maximum 20 characters')
+        if len(value) < 3:
+            raise ValidationError('Name must be at least 3 characters')
+        self.user.username = value
+
+    @property
+    def email(self):
+        return self.user.email
+
+    @email.setter
+    def set_email(self, value: str):
+        self.user.email = value
 
     def get_bought_products(self):
         return [cart_product for cart_product in self.bought_products.all()]

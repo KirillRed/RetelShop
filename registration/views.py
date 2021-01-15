@@ -67,9 +67,7 @@ def register_page(request: HttpRequest):
             g.user_set.add(user)
             send_verify_email(request=request, user_email=email)
             client = models.Client.objects.create(
-                user=request.user,
-                name=form['username'].value(),
-                email=form['email'].value(),
+                user=request.user
             )
             client.save()
             shop_models.Cart.objects.create(
