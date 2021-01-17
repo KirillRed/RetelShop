@@ -83,18 +83,18 @@ class CartProduct(models.Model):
     def __str__(self) -> str:
         return f'{self.product.title} in cart'
 
-    def get_final_price(self):
+    def final_price(self):
         final_price = format(Decimal(self.product.price * self.qty), '.17')
         getcontext().prec = len(final_price)
         return Decimal(final_price)
 
-    def get_product_image(self):
-        return self.product.thumbnail_main_photo
+    def product_image(self):
+        return self.product.thumbnail_main_photo.name
 
-    def get_product_title(self):
+    def product_title(self):
         return self.product.title
 
-    def get_product_price(self):
+    def product_price(self):
         return self.product.price
 
 class Cart(models.Model):
@@ -104,15 +104,15 @@ class Cart(models.Model):
     def __str__(self) -> str:
         return f'{self.owner.name}\'s cart'
 
-    def get_final_price(self):
+    def final_price(self):
         final_price = 0
         for cart_product in self.get_products():
-            final_price += cart_product.get_final_price()
+            final_price += cart_product.final_price()
         final_price = format(Decimal(final_price), '.17')
         getcontext().prec = len(final_price)
         return Decimal(final_price)
 
-    def get_total_products(self):
+    def total_products(self):
         total_products = 0
         for cart_product in self.products.all():
             total_products += cart_product.qty

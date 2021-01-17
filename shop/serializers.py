@@ -12,7 +12,7 @@ class ListOfComperisonSerializer(serializers.ModelSerializer):
 class CartProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.CartProduct
-        fields = ['get_product_title', 'get_product_image', 'get_product_price', 'qty', 'pk']
+        fields = ['product_title', 'product_image', 'product_price', 'qty', 'pk']
 
 class CreateProductSerializer(serializers.ModelSerializer):
 

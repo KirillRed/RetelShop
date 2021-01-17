@@ -588,9 +588,9 @@ def pay_cart(request: HttpRequest):
         try:
             client = request.user.client
             cart = models.Cart.objects.get(owner=client)
-            if cart.get_final_price() > client.balance:
+            if cart.final_price() > client.balance:
                 return HttpResponseBadRequest('You don\'t have enough money to pay this cart!')
-            if cart.get_final_price() > 999999:
+            if cart.final_price() > 999999:
                 return HttpResponseBadRequest('Sorry, 999999 usd is maximum price to pay')
             data = json.loads(request.body)
             stripeToken = data['stripeToken']
@@ -599,7 +599,7 @@ def pay_cart(request: HttpRequest):
             customer = registration_views.create_stripe_customer(client, stripeToken)
             charge = stripe.Charge.create(
                     customer=customer,
-                    amount=math.ceil(cart.get_final_price() * 100),
+                    amount=math.ceil(cart.final_price() * 100),
                     currency='usd',
                     description='Paying cart'
                 )
@@ -610,7 +610,7 @@ def pay_cart(request: HttpRequest):
         except Exception:
             logger.exception('Error')
             return HttpResponseBadRequest('Error')
-        client.balance -= cart.get_final_price()
+        client.balance -= cart.final_price()
         byte_products_in_cart = get_products_in_cart(request).content
         decoded_products_in_cart = byte_products_in_cart.decode('UTF-8')
         products_in_cart = ast.literal_eval(decoded_products_in_cart)
@@ -637,7 +637,7 @@ def add_product_to_cart(request: HttpRequest):
         quantity = int(data['quantity'])
         client = request.user.client
         cart = models.Cart.objects.get(owner=client)
-        if (product.price * quantity + cart.get_final_price()) > 999999:
+        if (product.price * quantity + cart.final_price()) > 999999:
             return HttpResponseBadRequest('Cart price cannot be more than 999999 usd!')
         cart_product = models.CartProduct(
             client=client,
