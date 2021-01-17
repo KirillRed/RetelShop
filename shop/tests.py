@@ -1,3 +1,8 @@
-from django.test import TestCase
+from rest_framework.test import APITestCase
+from .models import Product
 
-# Create your tests here.
+class APIHomeTest(APITestCase):
+    def setUp(self):
+        product = Product(
+
+        )
