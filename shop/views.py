@@ -647,7 +647,6 @@ def add_product_to_cart(request: HttpRequest):
         )
         cart_product.save()
         cart.related_products.add(cart_product)
-        cart.total_products += cart_product.qty
         cart.save()
         messages.success(request, 'Product was added to cart successfully!')
         return redirect('shop:home')
@@ -668,7 +667,6 @@ def remove_product_from_cart(request: HttpRequest):
         client = request.user.client
         cart_product.delete()
         cart = models.Cart.objects.get(owner=client)
-        cart.total_products -= cart_product.qty
         cart.save()
         messages.success(request, 'Product was removed from cart successfully!')
         return redirect('shop:home')

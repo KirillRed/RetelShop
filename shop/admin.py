@@ -18,7 +18,7 @@ class SubCategoryAdmin(admin.ModelAdmin):
     search_fields = ['title']
 
 class CartAdmin(admin.ModelAdmin):
-    list_display = ['owner', 'get_products', 'total_products', 'get_final_price', 'pk']
+    list_display = ['owner', 'get_products', 'get_total_products', 'get_final_price', 'pk']
     list_display_links = ['owner']
     search_fields = ['owner']
 

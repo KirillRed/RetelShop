@@ -113,7 +113,10 @@ class Cart(models.Model):
         return Decimal(final_price)
 
     def get_total_products(self):
-        return self.products.count()
+        total_products = 0
+        for cart_product in self.products.all():
+            total_products += cart_product.qty
+        return total_products
 
     def get_products(self):
         return [cart_product for cart_product in self.related_products.all()]
