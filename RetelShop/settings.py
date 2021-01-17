@@ -181,7 +181,7 @@ WEBPUSH_SETTINGS = {
 }
 
 firebaseConfig = {
-    'apiKey': "AIzaSyBI8PE3lX7wll4Ld4K7iDfvKXu1ShUD1xA",
+    'apiKey': config('FIREBASE_API_KEY'),
     'authDomain': "retelshop-6c5fb.firebaseapp.com",
     'databaseURL': "https://retelshop-6c5fb.firebaseio.com",
     'projectId': "retelshop-6c5fb",
