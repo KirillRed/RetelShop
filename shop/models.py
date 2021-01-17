@@ -100,7 +100,6 @@ class CartProduct(models.Model):
 class Cart(models.Model):
     owner = models.OneToOneField(to=Client, on_delete=models.CASCADE, related_name='cart')
     products = models.ManyToManyField(to=CartProduct, blank=True, related_name='related_cart')
-    total_products = models.PositiveIntegerField(default=0)
 
     def __str__(self) -> str:
         return f'{self.owner.name}\'s cart'
@@ -112,6 +111,9 @@ class Cart(models.Model):
         final_price = format(Decimal(final_price), '.17')
         getcontext().prec = len(final_price)
         return Decimal(final_price)
+
+    def get_total_products(self):
+        return self.products.count()
 
     def get_products(self):
         return [cart_product for cart_product in self.related_products.all()]
