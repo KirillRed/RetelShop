@@ -34,7 +34,7 @@ from registration import views as registration_views
 from registration.serializers import ClientSerializer
 from eav.models import Attribute
 
-stripe.api_key = 'sk_test_51HyubuDTNgwK2xMeoyk5dWiKmp7Gm5mPk5a7BIy0bzEECfPnYg22HT2oHsX3tEbcu5VV0PWF6JvElS9K8diKgJC200B0JruI7H'
+stripe.api_key = settings.STRIPE_API_KEY
 
 logger = logging.getLogger(__name__)
 
