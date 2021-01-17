@@ -37,7 +37,7 @@ from stripe.error import InvalidRequestError
 from chat.models import BlackList
 from rest_framework.authtoken.models import Token
 
-stripe.api_key = 'sk_test_51HyubuDTNgwK2xMeoyk5dWiKmp7Gm5mPk5a7BIy0bzEECfPnYg22HT2oHsX3tEbcu5VV0PWF6JvElS9K8diKgJC200B0JruI7H'
+stripe.api_key = settings.STRIPE_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +67,7 @@ def register_page(request: HttpRequest):
             g.user_set.add(user)
             send_verify_email(request=request, user_email=email)
             client = models.Client.objects.create(
-                user=request.user,
-                name=form['username'].value(),
-                email=form['email'].value(),
+                user=request.user
             )
             client.save()
             shop_models.Cart.objects.create(
