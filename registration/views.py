@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from registration import exceptions
 import stripe
 import os
@@ -33,6 +34,9 @@ from django.contrib.auth.tokens import default_token_generator
 from shop.serializers import CartProductSerializer
 from PIL import Image
 from stripe.error import InvalidRequestError
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password
 
 from chat.models import BlackList
 from rest_framework.authtoken.models import Token
@@ -41,15 +45,49 @@ stripe.api_key = settings.STRIPE_API_KEY
 
 logger = logging.getLogger(__name__)
 
+def create_models_for_user(request):
+    g = Group.objects.get(name='no_verified_email')
+    g.user_set.add(request.user)
+    client = models.Client.objects.create(
+        user=request.user
+    )
+    client.save()
+    shop_models.Cart.objects.create(
+        owner=client
+    )
+    BlackList.objects.create(
+        owner=client
+    )
+    Token.objects.create(
+        user=request.user
+    )
+    messages.success(request, 'User has been created!')
+    return redirect('shop:home')
+
+
+def validate_username(username):
+    if len(username) < 3:
+        raise ValidationError('Username must be at least 3 characters long!')
+    if len(username) > 12:
+        raise ValidationError('Username must be maximum 12 characters long!')
+    if username.isnumeric():
+        raise ValidationError('Username can\'t be numeric!')
+    try:
+        User.objects.get(username=username)
+        raise ValidationError('User with this username already exists!')
+    except User.DoesNotExist:
+        pass
+
+
 @csrf_exempt
 def register_page(request: HttpRequest):
     if request.user.is_authenticated:
         return HttpResponseBadRequest('You are already authenticated!')
-    form = forms.CreateUserForm()
     if request.method == 'POST':
-        form = forms.CreateUserForm(request.POST)
-        if form.is_valid():
-            email = form['email'].value()
+        data = json.loads(request.body)
+        email = data['email']
+        try:
+            validate_email(email)
             try:
                 if email == 'dasel5287@gmail.com':
                     raise User.DoesNotExist
@@ -57,38 +95,29 @@ def register_page(request: HttpRequest):
                 return HttpResponseBadRequest('User with this email already exists!')
             except User.DoesNotExist:
                 pass
-            #form.save()
-            username = form['username'].value()
-            password = form['password1'].value()
-            get_user_model().objects.create_user(username=username, password=password, email=email)
+            username = data['username']
+            validate_username(username)
+            password = data['password1']
+            password2 = data['password2']
+            if password != password2:
+                return HttpResponseBadRequest('Password aren\'t same!')
+            user = get_user_model().objects.create_user(username=username, password=password, email=email)
+            validate_password(password, user)
+            user.save()
             user = authenticate(request, username=username, password=password)
             login(request, user)
-            g = Group.objects.get(name='no_verified_email')
-            g.user_set.add(user)
             send_verify_email(request=request, user_email=email)
-            client = models.Client.objects.create(
-                user=request.user
-            )
-            client.save()
-            shop_models.Cart.objects.create(
-                owner=client
-            )
-            BlackList.objects.create(
-                owner=client
-            )
-            Token.objects.create(
-                user=request.user
-            )
-            messages.success(request, 'User has been created!')
-            return redirect('shop:home')
-        return JsonResponse(form.errors)
-
+            return create_models_for_user(request)
+        except ValidationError as ex:
+            return HttpResponseBadRequest(ex)
+            
 
 @csrf_exempt
 def get_stripe_token(request: HttpRequest):
     if request.method == 'POST':
         print(request.POST)
         return HttpResponse('success')
+
 
 def send_verify_email(request: HttpRequest, user_email):
     user = request.user
@@ -109,6 +138,7 @@ def send_verify_email(request: HttpRequest, user_email):
         [user_email],
     )
 
+
 def verify_email(request: HttpRequest, uidb64, token):
     user_id = int(urlsafe_base64_decode(uidb64))
     user = User.objects.get(pk=user_id)
@@ -120,18 +150,38 @@ def verify_email(request: HttpRequest, uidb64, token):
     return redirect('shop:home')
 
 
+def thumbnail_image(image, image_name, size):
+    product_image = image
+    if image != settings.DEFAULT_IMAGE_PATH:
+        path = default_storage.save(image_name, ContentFile(product_image.read()))
+        fn, fext = os.path.splitext(path)
+        opened_product_image = Image.open(product_image)
+        if opened_product_image.width < size[0] or opened_product_image.height < size[1]:
+            raise exceptions.LessResolutionError()
+        product_image_path = settings.MEDIA_ROOT + fn + f'.{opened_product_image.format.lower()}'
+        opened_product_image.save(product_image_path)
+        opened_product_image.thumbnail(settings.size, Image.ANTIALIAS)
+        thumbnail_product_image_path = settings.MEDIA_ROOT + fn + f"_thumbnail.{opened_product_image.format.lower()}"
+        opened_product_image.save(thumbnail_product_image_path)
+        return thumbnail_product_image_path
+    return settings.DEFAULT_IMAGE_PATH
+
+
 @csrf_exempt
 @login_required
 @verified_email
 def phone_link(request: HttpRequest):
-    form = forms.PhoneLinkForm
     if request.method == 'POST':
-        form = forms.PhoneLinkForm(request.POST, instance=request.user.client)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Phone has been added!')
-            return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
-        return JsonResponse(form.errors)
+        data = json.loads(request.body)
+        client = request.user.client
+        try:
+            client.phone = data['phone']
+            client.full_clean()
+            client.save()
+        except ValidationError as ex:
+            return HttpResponseBadRequest(ex)
+        messages.success(request, 'Phone has been added!')
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
 
 
 def validate_profile_pic(request, form):
@@ -180,12 +230,11 @@ def login_page(request: HttpRequest):
     print(request.GET)
     if request.user.is_authenticated:
         return HttpResponseBadRequest('You are already authenticated!')
-    form = forms.LoginForm()
     if request.method == 'POST':
         try:
-            form = forms.LoginForm(request.POST)
-            username = form['username'].value()
-            password = form['password'].value()
+            data = json.loads(request.body)
+            username = data['username']
+            password = data['password']
 
             user = authenticate(request, username=username, password=password)
 
@@ -198,7 +247,9 @@ def login_page(request: HttpRequest):
             logger.exception(ex)
             return HttpResponseBadRequest('')
         return HttpResponseBadRequest('Username or password are incorrect!')
-    print(request.method)
+    else:
+        return HttpResponse('Login page')
+
 
 @login_required
 def logout_user(request: HttpRequest):
