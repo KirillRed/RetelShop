@@ -6,6 +6,7 @@ import stripe
 import os
 import math
 import ast
+import base64
 
 
 from django.core.files.storage import default_storage
@@ -37,6 +38,7 @@ from stripe.error import InvalidRequestError
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password
+from django.db.utils import IntegrityError
 
 from chat.models import BlackList
 from rest_framework.authtoken.models import Token
@@ -44,6 +46,8 @@ from rest_framework.authtoken.models import Token
 stripe.api_key = settings.STRIPE_API_KEY
 
 logger = logging.getLogger(__name__)
+
+IMAGE_EXTENSIONS = ['jpeg', 'jpg', 'bmp', 'gif', 'png']
 
 def create_models_for_user(request):
     g = Group.objects.get(name='no_verified_email')
@@ -150,21 +154,34 @@ def verify_email(request: HttpRequest, uidb64, token):
     return redirect('shop:home')
 
 
-def thumbnail_image(image, image_name, size):
-    product_image = image
+def thumbnail_image(image, image_name, size, profile_pic=False):
     if image != settings.DEFAULT_IMAGE_PATH:
-        path = default_storage.save(image_name, ContentFile(product_image.read()))
+        path = default_storage.save(image_name, ContentFile(image.read()))
         fn, fext = os.path.splitext(path)
-        opened_product_image = Image.open(product_image)
-        if opened_product_image.width < size[0] or opened_product_image.height < size[1]:
+        opened_image = Image.open(image)
+        if opened_image.width < size[0] or opened_image.height < size[1]:
             raise exceptions.LessResolutionError()
-        product_image_path = settings.MEDIA_ROOT + fn + f'.{opened_product_image.format.lower()}'
-        opened_product_image.save(product_image_path)
-        opened_product_image.thumbnail(settings.size, Image.ANTIALIAS)
-        thumbnail_product_image_path = settings.MEDIA_ROOT + fn + f"_thumbnail.{opened_product_image.format.lower()}"
-        opened_product_image.save(thumbnail_product_image_path)
-        return thumbnail_product_image_path
+        if profile_pic:
+            if opened_image.width != opened_image.height:
+                raise exceptions.NotSquareError()
+        image_path = settings.MEDIA_ROOT + fn + f'.{opened_image.format.lower()}'
+        opened_image.save(image_path)
+        opened_image.thumbnail(size, Image.ANTIALIAS)
+        thumbnail_image_path = settings.MEDIA_ROOT + fn + f"_thumbnail.{opened_image.format.lower()}"
+        opened_image.save(thumbnail_image_path)
+        return thumbnail_image_path
     return settings.DEFAULT_IMAGE_PATH
+
+
+def base64_to_image(image_base64):
+    if not ';base64,' in image_base64:
+        raise exceptions.Base64Error
+    format, imgstr = image_base64.split(';base64,')
+    ext = format.split('/')[-1]
+    if not ext in IMAGE_EXTENSIONS:
+        raise exceptions.ExtensionError
+    image = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
+    return image
 
 
 @csrf_exempt
@@ -208,21 +225,26 @@ def validate_profile_pic(request, form):
 @login_required
 @verified_email
 def profile_pic_link(request: HttpRequest):
-    form = forms.ProfilePicForm
     if request.method == 'POST':
-        form = forms.ProfilePicForm(request.POST, request.FILES,
-                                    instance=request.user.client)
-        if form.is_valid():
-            try:
-                validate_profile_pic(request, form)
-            except exceptions.NotSquareError:
-                return HttpResponseBadRequest('Profile picture must be square!')
-            except exceptions.LessResolutionError:
-                return HttpResponseBadRequest('Profile picture must be at least 300x300!')
-
-            messages.success(request, 'Profile picture has been added!')
-            return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
-        return JsonResponse(form.errors)
+        data = json.loads(request.body)
+        profile_pic64 = data['profile_pic']
+        try:
+            profile_pic_image = base64_to_image(profile_pic64)
+            profile_pic_name = profile_pic_image.name
+            profile_pic = thumbnail_image(profile_pic_image, profile_pic_name, settings.PROFILE_PICTURE_RESOLUTION, profile_pic=True)
+            thumbnail_profile_pic = thumbnail_image(profile_pic_image, profile_pic_name, settings.THUMBNAIL_PROFILE_PICTURE_RESOLUTION, profile_pic=True)
+        except exceptions.ExtensionError:
+            return HttpResponseBadRequest('Extension isn\'t suportable')
+        except exceptions.LessResolutionError:
+            return HttpResponseBadRequest('Product image resolution is less than mimimal!')
+        except exceptions.NotSquareError:
+            return HttpResponseBadRequest('Profile picture must be square')
+        client = request.user.client
+        client.profile_pic = profile_pic
+        client.thumbnail_profile_pic = thumbnail_profile_pic
+        client.save()
+        messages.success(request, 'Profile picture has been added!')
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
 
 
 @csrf_exempt
@@ -256,28 +278,32 @@ def logout_user(request: HttpRequest):
     logout(request)
     return redirect('registration:login')
 
+
 @login_required
 @csrf_exempt
 @verified_email
 def change_password(request: HttpRequest):
-    form = forms.CheckPasswordForm
     if request.method == 'POST':
-        form = forms.CheckPasswordForm(request.POST)
-        if form.is_valid():
-            username = request.user.username
-            password = form['password'].value()
-            user = authenticate(request, username=username, password=password)
+        data = json.loads(request.body)
+        username = request.user.username
+        password = data['password']
+        user = authenticate(request, username=username, password=password)
+        if not user == None:
+            try:
+                password1 = data['password1']
+                password2 = data['password2']
+                if password1 != password2:
+                    return HttpResponseBadRequest('Password aren\'t same!')
+                validate_password(password1, request.user)
+            except ValidationError as ex:
+                return HttpResponseBadRequest(ex)
+            request.user.set_password(password1)
+            request.user.save()
+            login(request, request.user)
+            messages.success(request, 'Password has been changed!')
+            return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
+        return HttpResponseBadRequest('Password is incorrect!')
 
-            if not user == None:
-                form = forms.ChangePasswordForm(request.POST, instance=request.user)
-                if form.is_valid():
-                    form.save()
-                    print(request.user.is_authenticated)
-                    messages.success(request, 'Password has been changed!')
-                    return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
-            return HttpResponseBadRequest('Password is incorrect!')
-
-        return JsonResponse(form.errors)
 
 @login_required
 def profile_page(request: HttpRequest):
@@ -328,19 +354,24 @@ def add_review(request: HttpRequest):
     if int(target_pk) == request.user.client.pk:
         return HttpResponseForbidden('You can\'t add review about yourself')
     if request.method == 'POST':
-        form = forms.ReviewForm(request.POST)
-        if form.is_valid():
+        data = json.loads(request.body)
+        try:
             review = models.Review(
-                rating = form['rating'].value(),
-                title = form['title'].value(),
-                text = form['text'].value(),
+                rating = int(data['rating']),
+                title = data['title'],
+                text = data['text'],
                 target = target,
                 author = request.user.client
             )
+            review.full_clean()
             review.save()
-            return redirect(reverse_lazy('registration:profile_page') + f'?pk={target_pk}')
-        else:
-            return JsonResponse(form.errors)
+        except IntegrityError as ex:
+            return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
+        except ValueError:
+            return HttpResponseBadRequest('Please, write a valid values')
+        except ValidationError as ex:
+            return HttpResponseBadRequest(ex)
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={target_pk}')
 
 @verified_email
 @csrf_exempt
@@ -350,17 +381,25 @@ def edit_review(request: HttpRequest):
         return HttpResponseBadRequest('Oops.. Something went wrong!')
     try:
         review = models.Review.objects.get(pk=review_pk)
-    except models.Client.DoesNotExist:
-        return HttpResponseNotFound('This client does not exit!')
+    except models.Review.DoesNotExist:
+        return HttpResponseNotFound('This review does not exit!')
     if request.method == 'POST':
         if review.author != request.user.client:
            return HttpResponseForbidden('This isn\'t your review! You can\'t edit it')
-        form = forms.ReviewForm(request.POST, instance=review)
-        if form.is_valid():
-            form.save()
-            return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
-        else:
-            return JsonResponse(form.errors)
+        data = json.loads(request.body)
+        try:
+            review.rating = data['rating']
+            review.title = data['title']
+            review.text = data['text']
+            review.full_clean()
+            review.save()
+        except IntegrityError as ex:
+            return HttpResponseBadRequest(ex.args[0][:ex.args[0].find('\n')])
+        except ValueError:
+            return HttpResponseBadRequest('Please, write a valid values')
+        except ValidationError as ex:
+            return HttpResponseBadRequest(ex)
+        return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
 
 @verified_email
 @csrf_exempt
@@ -370,8 +409,8 @@ def delete_review(request: HttpRequest):
         return HttpResponseBadRequest('Oops.. Something went wrong!')
     try:
         review = models.Review.objects.get(pk=review_pk)
-    except models.Client.DoesNotExist:
-        return HttpResponseNotFound('This client does not exit!')
+    except models.Review.DoesNotExist:
+        return HttpResponseNotFound('This review does not exit!')
     if request.method == 'DELETE':
         if review.author != request.user.client:
             return HttpResponseForbidden('This isn\'t your review! You can\'t remove it')

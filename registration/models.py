@@ -5,11 +5,11 @@ from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 
-
 class Client(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     phone = PhoneNumberField(null=True, blank=True, unique=True)
     profile_pic = models.ImageField(default='default_profile_pic.png', blank=True)
+    thumbnail_profile_pic = models.ImageField(default='thumbnail_default_profile_pic.png', blank=True)
     balance = models.PositiveIntegerField(default=0)
     bought_products = models.ManyToManyField(to='shop.CartProduct', related_name='client_buyers', blank=True)
     date_created = models.DateTimeField(auto_now_add=True, null=True)

@@ -63,39 +63,11 @@ def home(request: HttpRequest):
     return JsonResponse(context, safe=False)
 
 
-def thumbnail_product_image(image, image_name):
-    product_image = image
-    if image != settings.DEFAULT_IMAGE_PATH:
-        path = default_storage.save(image_name, ContentFile(product_image.read()))
-        fn, fext = os.path.splitext(path)
-        opened_product_image = Image.open(product_image)
-        if opened_product_image.width < settings.MIN_PHOTO_RESOLUTION[0] or opened_product_image.height < settings.MIN_PHOTO_RESOLUTION[1]:
-            raise LessResolutionError()
-        product_image_path = settings.MEDIA_ROOT + fn + f'.{opened_product_image.format.lower()}'
-        opened_product_image.save(product_image_path)
-        opened_product_image.thumbnail(settings.MIN_PHOTO_RESOLUTION, Image.ANTIALIAS)
-        thumbnail_product_image_path = settings.MEDIA_ROOT + fn + f"_thumbnail.{opened_product_image.format.lower()}"
-        opened_product_image.save(thumbnail_product_image_path)
-        return thumbnail_product_image_path
-    return settings.DEFAULT_IMAGE_PATH
-
-
-def base64_to_image(image_base64):
-    if not ';base64,' in image_base64:
-        raise Base64Error
-    format, imgstr = image_base64.split(';base64,')
-    ext = format.split('/')[-1]
-    if not ext in IMAGE_EXTENSIONS:
-        raise ExtensionError
-    image = ContentFile(base64.b64decode(imgstr), name='temp.' + ext)
-    return image
-
-
 @login_required
 @csrf_exempt
 def add_product(request: HttpRequest):
     """Adds product to market"""
-    if request.method == 'POST':
+    if request.method == 'POST': 
         product_serializer = json.loads(request.body)['product']
         image_serializer = json.loads(request.body)['images']
         if len(image_serializer) > 7:
@@ -103,17 +75,17 @@ def add_product(request: HttpRequest):
         try:
             main_photo_base64 = product_serializer['main_photo']
             if main_photo_base64 is not None:
-                main_photo = base64_to_image(main_photo_base64)
+                main_photo = registration_views.base64_to_image(main_photo_base64)
                 main_photo_name = main_photo.name
             else:
                 main_photo = settings.DEFAULT_IMAGE_PATH
-                main_photo_name = '' # I didn't invented hoe to name it so it is empty string
+                main_photo_name = '' # I didn't invented how to name it so it is empty string
             product = models.Product(
                 title = product_serializer['title'],
                 description = product_serializer['description'],
                 price = product_serializer['price'],
                 main_photo = main_photo,
-                thumbnail_main_photo = thumbnail_product_image(main_photo, main_photo_name),
+                thumbnail_main_photo = registration_views.thumbnail_image(main_photo, main_photo_name, settings.MIN_PRODUCT_IMAGE_RESOLUTION),
                 seller = request.user.client,
                 category = models.Category.objects.get(pk=
                             product_serializer['category']),
@@ -157,10 +129,10 @@ def add_product_images(request: HttpRequest):
         try:
             image_base64 = product_image['image']
             if image_base64 is not None:
-                image = base64_to_image(image_base64)
+                image = registration_views.base64_to_image(image_base64)
                 product_image = models.ProductImage(
                     image = image,
-                    thumbnail_image = thumbnail_product_image(image, image.name),
+                    thumbnail_image = registration_views.thumbnail_image(image, image.name, settings.MIN_PRODUCT_IMAGE_RESOLUTION),
                     product = models.Product.objects.get(pk=product.pk))
                 product_image.save()
         except ExtensionError:
@@ -356,13 +328,13 @@ def edit_product(request: HttpRequest):
         try:
             main_photo_base64 = product_serializer['main_photo']
             if main_photo_base64 is not None:
-                main_photo = base64_to_image(main_photo_base64)
+                main_photo = registration_views.base64_to_image(main_photo_base64)
                 main_photo_name = main_photo.name
             else:
                 main_photo = settings.DEFAULT_IMAGE_PATH
                 main_photo_name = 'main'
             product.main_photo = main_photo
-            product.thumbnail_main_photo = thumbnail_product_image(main_photo, main_photo_name)
+            product.thumbnail_main_photo = registration_views.thumbnail_image(main_photo, main_photo_name, settings.MIN_PRODUCT_IMAGE_RESOLUTION)
             product.title = product_serializer['title']
             product.description = product_serializer['description']
             product.price = product_serializer['price']
@@ -406,9 +378,9 @@ def edit_product_image(request: HttpRequest):
             image_serializer = json.loads(request.body)['image']
             image_base64 = image_serializer['image']
             if image_base64 is not None:
-                image = base64_to_image(image_base64)
+                image = registration_views.base64_to_image(image_base64)
                 product_image.image = image
-                product_image.thumbnail_image = thumbnail_product_image(image, image.name)
+                product_image.thumbnail_image = registration_views.thumbnail_image(image, image.name, settings.MIN_PRODUCT_IMAGE_RESOLUTION)
                 product_image.save()
         except ExtensionError:
             return HttpResponseBadRequest('Extension isn\'t suportable')
