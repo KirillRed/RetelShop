@@ -1,11 +1,15 @@
 import ast
+import json
+import requests
+import responses
+
+import registration.views as views
 
 from django.http.response import HttpResponseBase
-from django.test import TestCase
 from rest_framework.test import APITestCase
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, User
 from django.urls.base import reverse_lazy
 from registration.models import Client, Review
 from shop.models import Cart, CartProduct, Product, Category, SubCategory
@@ -50,6 +54,7 @@ def subcategory_set_up(title, category):
     subcategory.save()
     return subcategory
 
+
 def review_set_up(rating, title, text, target, author):
     review = Review(
         rating=rating,
@@ -90,6 +95,7 @@ def cart_set_up(owner):
     cart = Cart(owner=owner)
     cart.save()
     return cart
+
 
 class PuchaseHistoryAPITest(APITestCase):
     def setUp(self):
@@ -186,3 +192,61 @@ class ProfilePageAPITest(APITestCase):
         dict_response = byte_response_to_dict(response)
         self.assertEqual(dict_response['client']['name'], 'TestProfilePageTarget')
         self.assertEqual(dict_response['reviews'][0]['title'], 'Test')
+
+
+class RegisterAPITest(APITestCase):
+    def setUp(self):
+        group = Group(
+            name='no_verified_email'
+        )
+        group.save()
+        
+    def test_post(self):
+        url = reverse_lazy('registration:register')
+
+        valid_data = {'username': 'TestRegister', 'email': 'testregister@gmail.com', 'password1': 'VerYHard123', 'password2': 'VerYHard123'}
+        self.client.post(url, data=json.dumps(valid_data), content_type='application/json')
+        self.assertEqual(Client.objects.get(user__username='TestRegister').email, 'testregister@gmail.com')
+
+        #simple password
+        first_invalid_data = {'username': 'TestRegister2', 'email': 'testregister2@gmail.com', 'password1': 'simple', 'password2': 'simple'}
+        first_invalid_response = self.client.post(url, data=json.dumps(first_invalid_data), content_type='application/json')
+        self.assertEqual(first_invalid_response.status_code, 400)
+        
+        #two password aren't same
+        second_invalid_data= {'username': 'TestRegister3', 'email': 'testregister3@gmail.com', 'password1': 'FirstHardPass', 'password2': 'SecondHardPass'}
+        second_invalid_response = self.client.post(url, data=json.dumps(second_invalid_data), content_type='application/json')
+        self.assertEqual(second_invalid_response.status_code, 400)
+
+
+class LoginAPITest(APITestCase):
+    def setUp(self):
+        user = user_set_up('TestLogin', 'TestLoginPassword', 'testemail@gmail.com')
+        user.save()
+        self.user = user
+
+    def test_post(self):
+        url = reverse_lazy('registration:login')
+
+        valid_data = {'username': 'TestLogin', 'password': 'TestLoginPassword'}
+        self.client.post(url, data=json.dumps(valid_data), content_type='application/json')
+        self.assertIn('_auth_user_id', self.client.session)
+        self.client.logout()
+
+        invalid_data = {'username': 'TestLogin', 'password': 'IncorrectPassword'}
+        response = self.client.post(url, data=json.dumps(invalid_data), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+
+class LogoutAPITest(APITestCase):
+    def setUp(self):
+        user = user_set_up('TestLogin', 'TestLoginPassword', 'testemail@gmail.com')
+        user.save()
+        self.client.login(username=user.username, password=user.password)
+    
+    def test_delete(self):
+        url = reverse_lazy('registration:logout')
+
+        self.client.delete(url)
+        self.assertNotIn('_auth_user_id', self.client.session)
+

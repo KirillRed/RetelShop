@@ -249,7 +249,6 @@ def profile_pic_link(request: HttpRequest):
 
 @csrf_exempt
 def login_page(request: HttpRequest):
-    print(request.GET)
     if request.user.is_authenticated:
         return HttpResponseBadRequest('You are already authenticated!')
     if request.method == 'POST':
@@ -273,10 +272,14 @@ def login_page(request: HttpRequest):
         return HttpResponse('Login page')
 
 
+@csrf_exempt
 @login_required
 def logout_user(request: HttpRequest):
-    logout(request)
-    return redirect('registration:login')
+    if request.method == 'DELETE':
+        logout(request)
+        return redirect('registration:login')
+    else:
+        return HttpResponse('Logout page')
 
 
 @login_required
@@ -373,6 +376,7 @@ def add_review(request: HttpRequest):
             return HttpResponseBadRequest(ex)
         return redirect(reverse_lazy('registration:profile_page') + f'?pk={target_pk}')
 
+
 @verified_email
 @csrf_exempt
 def edit_review(request: HttpRequest):
@@ -400,6 +404,7 @@ def edit_review(request: HttpRequest):
         except ValidationError as ex:
             return HttpResponseBadRequest(ex)
         return redirect(reverse_lazy('registration:profile_page') + f'?pk={review.target.pk}')
+
 
 @verified_email
 @csrf_exempt
@@ -435,7 +440,6 @@ def get_average_rating(request: HttpRequest):
         ratings.append(review.rating)
     average_rating = sum(ratings) / len(ratings) 
     return JsonResponse({'average_rating': average_rating})
-
 
 
 def create_stripe_customer(client, stripeToken):
