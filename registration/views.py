@@ -119,7 +119,6 @@ def register_page(request: HttpRequest):
 @csrf_exempt
 def get_stripe_token(request: HttpRequest):
     if request.method == 'POST':
-        print(request.POST)
         return HttpResponse('success')
 
 
@@ -201,26 +200,6 @@ def phone_link(request: HttpRequest):
         return redirect(reverse_lazy('registration:profile_page') + f'?pk={request.user.client.pk}')
 
 
-def validate_profile_pic(request, form):
-    MIN_RESOLUTION = (300, 300)
-    profile_pic = form['profile_pic'].value()
-    if profile_pic != None:
-        path = default_storage.save(str(profile_pic), ContentFile(profile_pic.read()))
-        fn, fext = os.path.splitext(path)
-        opened_profile_pic = Image.open(profile_pic)
-        if opened_profile_pic.width != opened_profile_pic.height:
-            raise exceptions.NotSquareError()
-        if opened_profile_pic.width < MIN_RESOLUTION[0]:
-            raise exceptions.LessResolutionError()
-        opened_profile_pic.thumbnail(MIN_RESOLUTION, Image.ANTIALIAS)
-        profile_pic_path = r'F:\\RetelShop\\images\\' + fn + f"_thumbnail.{opened_profile_pic.format.lower()}"
-        opened_profile_pic.save(profile_pic_path)
-        client = request.user.client
-        client.profile_pic = profile_pic_path
-        client.save()
-        return True
-
-
 @csrf_exempt
 @login_required
 @verified_email
@@ -262,7 +241,6 @@ def login_page(request: HttpRequest):
             if user is not None:
                 login(request, user)
                 messages.success(request, 'User has been logined!')
-                print('asd')
                 return redirect('shop:home')
         except Exception as ex:
             logger.exception(ex)
@@ -330,7 +308,6 @@ def profile_page(request: HttpRequest):
         average_rating = get_average_rating(average_rating_request).__dict__['_container']
         average_rating = average_rating[0]
         decoded_rating= average_rating.decode('UTF-8')
-        print(decoded_rating)
         dict_rating = ast.literal_eval(decoded_rating)
 
         context = {'client': client_serializer.data, 'reviews': review_sarializer.data,
@@ -348,12 +325,6 @@ def add_review(request: HttpRequest):
         target = models.Client.objects.get(pk=target_pk)
     except models.Client.DoesNotExist:
         return HttpResponseNotFound('This client does not exit!')
-    try:
-        reviews_about_target = models.Review.objects.filter(target=target_pk)
-        reviews_about_target.get(author=request.user.client.pk)
-        return HttpResponseBadRequest('You have already written review abour this client!')
-    except models.Review.DoesNotExist:
-        pass
     if int(target_pk) == request.user.client.pk:
         return HttpResponseForbidden('You can\'t add review about yourself')
     if request.method == 'POST':
@@ -453,6 +424,7 @@ def create_stripe_customer(client, stripeToken):
 
 @csrf_exempt
 @login_required
+@verified_email
 def top_up_balance(request: HttpRequest):
     if request.method == 'POST':
         try:

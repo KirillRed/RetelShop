@@ -54,7 +54,6 @@ def home(request: HttpRequest):
     page = paginator.get_page(page_num)
     objects = page.object_list
     objects_serializer = serializers.ProductSerializer(objects, many=True)
-    print(objects_serializer)
     webpush_settings = getattr(settings, 'WEBPUSH_SETTINGS', {})
     vapid_key = webpush_settings.get('VAPID_PUBLIC_KEY')
     user = request.user
@@ -355,7 +354,7 @@ def edit_product(request: HttpRequest):
             return HttpResponseBadRequest('This isn\'t image!')
         except FileNotFoundError:
             return HttpResponseBadRequest('This file doesn\'t exist!')
-        except:
+        except Exception:
             logger.exception('Some error detected')
             return HttpResponseBadRequest('Some error detected')
         return redirect('shop:home')
@@ -437,7 +436,6 @@ def delete_product_image(request: HttpRequest):
             return HttpResponseForbidden('This isn\'t your product! You can\'t delete it!')
         product_image.delete()
         return redirect('shop:home')
-    print(request.method)
 
 
 @csrf_exempt

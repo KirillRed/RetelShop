@@ -46,8 +46,11 @@ class Review(models.Model):
     title = models.CharField(max_length=50, validators=[validators.MinLengthValidator(2)])
     text = models.CharField(max_length=500, validators=[validators.MinLengthValidator(5)])
     #Client-recipient
-    target = models.ForeignKey(to=Client, on_delete=models.CASCADE, related_name='review_about_client')
+    target = models.ForeignKey(to=Client, on_delete=models.CASCADE, related_name='reviews_about_client')
     #Client-author
     author = models.ForeignKey(to=Client, on_delete=models.CASCADE,related_name='client_reviews' )
     date_created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('target', 'author',)
      
