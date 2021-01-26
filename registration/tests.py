@@ -1,14 +1,16 @@
 import ast
 import json
 import base64
+import math
 
 
 import registration.views as views
 
+from django.core import mail
 from django.contrib.auth.hashers import check_password
 from django.conf import settings
 from rest_framework.test import APITestCase
-from unittest.mock import patch
+from unittest import mock
 from django.contrib.auth import get_user, get_user_model
 from django.contrib.auth.models import Group, User
 from django.urls.base import reverse_lazy
@@ -16,6 +18,7 @@ from registration.models import Client, Review
 from shop.models import Cart, CartProduct, Product, Category, SubCategory
 from PIL import Image
 
+from unittest.mock import patch, ANY
 
 def byte_response_to_dict(byte_response):
     decoded_response = byte_response.decode('UTF-8')
@@ -125,7 +128,7 @@ class PuchaseHistoryAPITest(APITestCase):
         product = Product.objects.get(pk=self.product.pk)
         self.client.login(username=self.client_.name, password='TestPassword')
         url = reverse_lazy('registration:purchase_history')
-        response = self.client.get(url, follow=True).content
+        response = self.client.get(url).content
         dict_response = byte_response_to_dict(response)
         self.assertEqual(dict_response[0]['product_title'], product.title)
 
@@ -165,7 +168,7 @@ class AverageRatingAPITest(APITestCase):
         expected_result = 3.0
         self.client.login(username=self.client_author.name, password='TestAuthorPassword')
         url = reverse_lazy('registration:average_rating') + f'?pk={self.client_target.pk}'
-        response = self.client.get(url, follow=True).content
+        response = self.client.get(url).content
         dict_response = byte_response_to_dict(response)
         self.assertEqual(dict_response['average_rating'], expected_result)
 
@@ -195,7 +198,7 @@ class ProfilePageAPITest(APITestCase):
     def test_get(self):
         self.client.login(username=self.client_author.name, password='TestAuthorPassword')
         url = reverse_lazy('registration:profile_page') + f'?pk={self.client_target.pk}'
-        response = self.client.get(url, follow=True).content
+        response = self.client.get(url).content
         dict_response = byte_response_to_dict(response)
         self.assertEqual(dict_response['client']['name'], 'TestProfilePageTarget')
         self.assertEqual(dict_response['reviews'][0]['title'], 'Test')
@@ -211,9 +214,10 @@ class RegisterAPITest(APITestCase):
         self.url = reverse_lazy('registration:register')
         
     def test_post(self):
-        valid_data = {'username': 'TestRegister', 'email': 'testregister@gmail.com', 'password1': 'VerYHard123', 'password2': 'VerYHard123'}
+        valid_data = {'username': 'TestRegister', 'email': settings.MY_EMAIL, 'password1': 'VerYHard123', 'password2': 'VerYHard123'}
         self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
-        self.assertEqual(Client.objects.get(user__username='TestRegister').email, 'testregister@gmail.com')
+        print(mail.outbox[0].subject)
+        self.assertEqual(Client.objects.get(user__username='TestRegister').email, settings.MY_EMAIL)
 
     def test_simple_password(self):
         first_invalid_data = {'username': 'TestRegister2', 'email': 'testregister2@gmail.com', 'password1': 'simple', 'password2': 'simple'}
@@ -331,7 +335,7 @@ class ProfilePicLinkAPITest(APITestCase):
         self.assertEqual(opened_profile_pic.size, (360, 360))
         self.assertEqual(opened_thumbnail_profile_pic.size, (40, 40))
      
-    def test_invalid_post(self):
+    def test_not_square_image(self):
         image_path = settings.MEDIA_ROOT + "invalid_test.png"
 
         with open(image_path, "rb") as image_file:
@@ -345,7 +349,6 @@ class ChangePasswordAPITest(APITestCase):
     def setUp(self):
         user = user_set_up('TestChangePassword', 'TestChangePassword', 'testchangepasswordmail@gmail.com')
         self.user = user
-        self.current_user_password = self.user.password
 
         group = Group(
             name='verified_email'
@@ -363,7 +366,143 @@ class ChangePasswordAPITest(APITestCase):
 
     def test_valid_post(self):
         valid_data = {'password': 'TestChangePassword', 'password1': 'VeryHardItIs', 'password2': 'VeryHardItIs'}
-        response = self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
+        self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
         self.user.refresh_from_db()
         self.assertTrue(check_password('VeryHardItIs', self.user.password))
-            
+
+
+class AddReviewAPITest(APITestCase):
+    def setUp(self):
+        user_author = user_set_up('TestAddReviewAuthor', 'TestAddReviewPasswordAuthor', 'testaddreviewauthor@gmail.com')
+        user_target = user_set_up('TestAddReviewTarget', 'TestAddReviewPasswordTarget', 'testaddreviewtarget@gmail.com')
+
+        group = Group(
+            name='verified_email'
+        )
+        group.save()
+
+        group.user_set.add(user_author)
+        group.save()
+
+        client_set_up(user_author)
+
+        client_target = client_set_up(user_target)
+
+        self.url = reverse_lazy('registration:add_review') + f'?pk={client_target.pk}'
+
+        self.client.login(username=user_author.username, password='TestAddReviewPasswordAuthor')
+
+    def test_valid_post(self):
+        valid_data = {'rating': "3", 'title': 'TestAddReview', 'text': 'TestAddReviewText'}
+        self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
+        review = Review.objects.get(title='TestAddReview')
+        self.assertEqual(review.text, 'TestAddReviewText')
+
+    def test_less_than_minimal_text(self):
+        invalid_data = {'rating': "3", 'title': 'TestAddReview', 'text': 'A'}
+        response = self.client.post(self.url, data=json.dumps(invalid_data), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+
+class EditReviewAPITest(APITestCase):
+    def setUp(self):
+        user_author = user_set_up('TestEditReviewAuthor', 'TestEditReviewPasswordAuthor', 'testeditreviewauthor@gmail.com')
+        user_target = user_set_up('TestEditReviewTarget', 'TestEditReviewPasswordTarget', 'testeditreviewtarget@gmail.com')
+
+        group = Group(
+            name='verified_email'
+        )
+        group.save()
+
+        group.user_set.add(user_author)
+        group.save()
+
+        client_author = client_set_up(user_author)
+
+        client_target = client_set_up(user_target)
+
+        review = review_set_up(4, 'TestEditReview', 'TestEditReviewText', client_target, client_author)
+        self.review = review
+
+        self.url = reverse_lazy('registration:edit_review') + f'?pk={review.pk}'
+
+        self.client.login(username=user_author.username, password='TestEditReviewPasswordAuthor')
+
+    def test_valid_post(self):
+        valid_data = {'rating': "4", 'title': 'ChangedReviewTitle', 'text': 'ChangedReviewText'}
+        self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
+        self.review.refresh_from_db()
+        self.assertEqual(self.review.title, 'ChangedReviewTitle')
+
+    def test_rating_not_int(self):
+        invalid_data = {'rating': "NotString", 'title': 'ChangedReviewTitle', 'text': 'ChangedReviewText'}
+        response = self.client.post(self.url, data=json.dumps(invalid_data), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+class DeleteReviewAPITest(APITestCase):
+    def setUp(self):
+        user_author = user_set_up('TestDeleteReviewAuthor', 'TestDeleteReviewPasswordAuthor', 'testdeletereviewauthor@gmail.com')
+        user_target = user_set_up('TestDeleteReviewTarget', 'TestDeleteReviewTargetPassword', 'testdeletereviewtarget@gmail.com')
+
+        group = Group(
+            name='verified_email'
+        )
+        group.save()
+
+        group.user_set.add(user_author)
+        group.save()
+
+        client_author = client_set_up(user_author)
+
+        client_target = client_set_up(user_target)
+
+        review = review_set_up(4, 'TestDeleteReview', 'TestDeleteReviewText', client_target, client_author)
+        self.review_pk = review.pk
+
+        self.url = reverse_lazy('registration:delete_review') + f'?pk={review.pk}'
+
+        self.client.login(username=user_author.username, password='TestDeleteReviewPasswordAuthor')
+
+    def test_delete(self):
+        self.client.delete(self.url)
+        try:
+            Review.objects.get(pk=self.review_pk)
+        except Review.DoesNotExist:
+            pass
+        except Exception:
+            self.fail('unexpected exception raised')
+        else:
+            self.fail('DoesNotExist not raised')
+
+
+class TopUpBalanceAPITest(APITestCase):
+    def setUp(self):
+        user = user_set_up('TestTopUpBalance', 'TestTopUpBalancePassword', 'testtopupbalance@gmail.com')
+
+        group = Group(
+            name='verified_email'
+        )
+        group.save()
+
+        group.user_set.add(user)
+        group.save()
+
+        client = client_set_up(user)
+        self.client_ = client
+
+        self.url = reverse_lazy('registration:top_up_balance')
+
+        self.client.login(username=user.username, password='TestTopUpBalancePassword')
+    
+    @patch('registration.views.stripe')
+    def test_valid_data(self, mock_requests):
+        amount = 3000
+        valid_data = {'amount': amount, 'stripeToken': 'token'}
+        self.client.post(self.url, data=json.dumps(valid_data), content_type='application/json')
+        self.client_.refresh_from_db()
+        self.assertEqual(self.client_.balance, amount)
+        mock_requests.Customer.create.assert_called_once_with(email=self.client_.email,
+                                                            name=self.client_.name,
+                                                            source='token')
+        mock_requests.Charge.create.assert_called_once_with(customer=ANY, amount=math.ceil(amount*100),
+                                                            currency='usd', description='Top up balance')
