@@ -36,7 +36,7 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=13,
                                 decimal_places=2,
                                 validators=[validators.MinValueValidator(0), validators.MaxValueValidator(999999)])
-    likes = models.ManyToManyField('registration.Client', verbose_name='Likes', null=True, blank=True)
+    likes = models.ManyToManyField('registration.Client', verbose_name='Likes', blank=True)
     main_photo = models.ImageField(default='default_main_photo.png', blank=True)
     thumbnail_main_photo = models.ImageField(default='default_main_photo.png', blank=True)
     seller = models.ForeignKey(to=Client, related_name='+', default='', on_delete=models.CASCADE)
@@ -83,35 +83,40 @@ class CartProduct(models.Model):
     def __str__(self) -> str:
         return f'{self.product.title} in cart'
 
-    def get_final_price(self):
+    def final_price(self):
         final_price = format(Decimal(self.product.price * self.qty), '.17')
         getcontext().prec = len(final_price)
         return Decimal(final_price)
 
-    def get_product_image(self):
-        return self.product.thumbnail_main_photo
+    def product_image(self):
+        return self.product.thumbnail_main_photo.name
 
-    def get_product_title(self):
+    def product_title(self):
         return self.product.title
 
-    def get_product_price(self):
+    def product_price(self):
         return self.product.price
 
 class Cart(models.Model):
     owner = models.OneToOneField(to=Client, on_delete=models.CASCADE, related_name='cart')
     products = models.ManyToManyField(to=CartProduct, blank=True, related_name='related_cart')
-    total_products = models.PositiveIntegerField(default=0)
 
     def __str__(self) -> str:
         return f'{self.owner.name}\'s cart'
 
-    def get_final_price(self):
+    def final_price(self):
         final_price = 0
         for cart_product in self.get_products():
-            final_price += cart_product.get_final_price()
+            final_price += cart_product.final_price()
         final_price = format(Decimal(final_price), '.17')
         getcontext().prec = len(final_price)
         return Decimal(final_price)
+
+    def total_products(self):
+        total_products = 0
+        for cart_product in self.products.all():
+            total_products += cart_product.qty
+        return total_products
 
     def get_products(self):
         return [cart_product for cart_product in self.related_products.all()]

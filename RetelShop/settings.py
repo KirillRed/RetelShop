@@ -181,7 +181,7 @@ WEBPUSH_SETTINGS = {
 }
 
 firebaseConfig = {
-    'apiKey': "AIzaSyBI8PE3lX7wll4Ld4K7iDfvKXu1ShUD1xA",
+    'apiKey': config('FIREBASE_API_KEY'),
     'authDomain': "retelshop-6c5fb.firebaseapp.com",
     'databaseURL': "https://retelshop-6c5fb.firebaseio.com",
     'projectId': "retelshop-6c5fb",
@@ -223,7 +223,11 @@ MEDIA_URL = '/images/'
 
 MEDIA_ROOT = os.path.join(BASE_DIR, 'images\\')
 
-MIN_PHOTO_RESOLUTION = (245, 175)
+MIN_PRODUCT_IMAGE_RESOLUTION = (245, 175)
+
+PROFILE_PICTURE_RESOLUTION = (360, 360)
+
+THUMBNAIL_PROFILE_PICTURE_RESOLUTION = (40, 40)
 
 DEFAULT_IMAGE_PATH = r'F:\RetelShop\images\default_main_photo.png'
 
