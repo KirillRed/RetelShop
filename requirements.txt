@@ -1,7 +1,6 @@
-<<<<<<< HEAD
 channels==3.0.3
 channels-redis==3.2.0
-chatterbot==1.0.8
+chatterbot==1.1.0
 chatterbot-corpus==1.2.0
 Django==3.1.5
 django-cors-headers==3.6.0
@@ -15,10 +14,9 @@ phonenumbers==8.12.15
 Pillow==8.1.0
 Pyrebase==3.0.27
 stripe==2.55.1
-=======
 channels==3.0.3
 channels-redis==3.2.0
-chatterbot==1.0.8
+chatterbot==1.1.0
 chatterbot-corpus==1.2.0
 Django==3.1.5
 django-cors-headers==3.6.0
@@ -32,5 +30,4 @@ phonenumbers==8.12.15
 Pillow==8.1.0
 Pyrebase==3.0.27
 stripe==2.55.1
->>>>>>> 15129b6f469e3a472583cfad86b7cc5cb500f9cc
 redis==3.5.3
